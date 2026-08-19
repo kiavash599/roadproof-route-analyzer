@@ -1,5 +1,42 @@
 # RoadProof
 
+## Quick start
+
+You need Git and an internet connection. The platform installer checks for
+Python 3.10 or newer, installs it when supported and missing, creates an
+isolated `.venv`, and installs RoadProof's pinned requirements.
+
+### Windows (PowerShell)
+
+Open PowerShell and run:
+
+```powershell
+git clone https://github.com/kiavash599/roadproof-route-analyzer.git
+cd roadproof-route-analyzer
+powershell -ExecutionPolicy Bypass -File .\installer.ps1
+.\start.ps1
+```
+
+Paste either a short Google Maps share link or the full directions URL when
+prompted. Command Prompt and double-click users can run `start.bat` instead.
+
+### macOS or Linux (Terminal)
+
+Open Terminal and run:
+
+```bash
+git clone https://github.com/kiavash599/roadproof-route-analyzer.git
+cd roadproof-route-analyzer
+bash ./installer.sh
+./start.sh
+```
+
+Paste either Google Maps link format when prompted. RoadProof shows the result
+in colored terminal tables and saves the detailed Markdown report under
+`reports/`.
+
+## Overview
+
 Multi-purpose, evidence-first road-type analysis for European routes.
 
 RoadProof accepts a Google Maps route link, resolves its ordered route request,
@@ -79,56 +116,18 @@ Legacy `https://goo.gl/maps/...` links and supported localized European Google
 Maps domains are also recognized. Clipboard labels, surrounding quotes, angle
 brackets and harmless whitespace are removed before the URL is validated.
 
-## Install on Windows
+## Usage options
 
-Clone or download this repository, open PowerShell in its folder, and run:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\installer.ps1
-```
-
-`installer.ps1` detects Python 3.10 or newer. If Python is missing, it installs
-Python 3.12 for the current user through `winget`, creates an isolated `.venv`,
-installs the pinned requirements, and runs a self-check. No Windows desktop
-application, Electron package, Google key or private token is used.
-
-## Install on macOS or Linux
-
-Open Terminal in the project folder and run:
-
-```bash
-bash ./installer.sh
-```
-
-The installer uses an existing Python 3.10+ when available. On macOS it can use
-Homebrew; on supported Linux distributions it can use `apt`, `dnf`, `pacman`,
-or `zypper`. System package installation may request administrator permission.
-The RoadProof Python packages themselves are always isolated inside `.venv`.
-
-## Analyze a route
-
-Interactive Windows use:
-
-```powershell
-.\start.ps1
-```
-
-Paste the Google Maps route link when prompted. Or pass it directly:
+After installation, you can pass a route link directly on Windows:
 
 ```powershell
 .\start.ps1 "https://maps.app.goo.gl/rbGN7YeiTqY5E74n9"
 ```
 
-`start.bat` is also provided for Command Prompt and double-click use. It opens
-the same PowerShell launcher and does not contain a second implementation.
+`start.bat` opens the same PowerShell launcher and does not contain a second
+implementation.
 
-Interactive macOS or Linux use:
-
-```bash
-./start.sh
-```
-
-Or pass either link format directly:
+Pass either link format directly on macOS or Linux:
 
 ```bash
 ./start.sh "https://www.google.com/maps/dir/Origin/Destination/..."
