@@ -1,0 +1,57 @@
+{
+  "schema_version": 1,
+  "name": "Verified Denmark five-leg route — 264.425 km selection",
+  "analysis_date": "2026-08-19",
+  "country": "DK",
+  "adapter": "Danish Vejman official-road adapter",
+  "route_identity": {
+    "route_fingerprint": "0f72968a540dacdc30ba278a1b2a96840e2e5acb20b8d2ce44465a34d0c78908",
+    "distance_m": 264425,
+    "maneuver_count": 84
+  },
+  "breakdown": [
+    {
+      "category": "Highway",
+      "official_layer": "Signed motorway (Motorvej)",
+      "distance_m": 149539.44000493907,
+      "status": "Inferred distance; official class confirmed"
+    },
+    {
+      "category": "Country",
+      "official_layer": "Other road outside built-up-area signs",
+      "distance_m": 82904.66433912415,
+      "status": "Inferred distance; official regime confirmed"
+    },
+    {
+      "category": "City",
+      "official_layer": "Other road inside built-up-area signs",
+      "distance_m": 11903.223725584305,
+      "status": "Inferred distance; official regime confirmed"
+    },
+    {
+      "category": "Unresolved",
+      "official_layer": "Local access roads, private connectors and conservative data gaps",
+      "distance_m": 20077.67193035247,
+      "status": "Unresolved"
+    }
+  ],
+  "inferred": [
+    "Exact Google section distances were allocated in proportion to official matched-path classes.",
+    "Seven Google-labelled numbered-road sections totaling 235.387 km were matched to official E20, E47, Route 22, Route 14 and Route 21 paths.",
+    "Local sections were accepted only when official-network distance differed by no more than max(50 m, 5%) and both maneuver-anchor snaps were no more than 100 m.",
+    "Operational mapping: Highway = signed motorway; Country = non-motorway outside built-up-area signs; City = non-motorway inside built-up-area signs."
+  ],
+  "unresolved": [
+    "20.078 km of local access roads, private connectors and conservative official-network gaps were not assigned to another category.",
+    "The legal source does not prescribe a universal GIS mapping for every country's road attributes.",
+    "Google can change a shared link's selected route; this evidence package applies only to the recorded 264.425 km / 84-maneuver fingerprint."
+  ],
+  "method": "The Google-selected route was read directly and its 84 maneuver distances reconciled to 264.425 km. Google-labelled numbered sections were restricted to their stated official route numbers and matched against the Vejman numbered-road network. The accepted official-path distance differences were between 0.08% and 0.48%, with official attribute joins no farther than 0.7 m. Reliable short sections used the max(50 m, 5%) distance and 100 m anchor-snap gates. Two unchanged Copenhagen motorway connectors totaling 1.256 km retained their prior identical-anchor official match. Every section that failed these conservative checks remains unresolved.",
+  "official_sources": [
+    "Vejman `hastighedsgraenser`: 44,218 features; snapshot timestamp 2026-08-18T22:33:29.813Z.",
+    "Vejman `rutenummereret-vejnet`: 1,161 features; snapshot timestamp 2026-08-18T22:35:45.236Z.",
+    "Danish road and path register regulation: https://www.retsinformation.dk/api/pdf/177057",
+    "Vejman WFS guidance: https://vejman.scrollhelp.site/hjaelpecenter/anvende-stedfstelse-i-egne-programmer"
+  ]
+}
+

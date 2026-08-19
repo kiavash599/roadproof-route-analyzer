@@ -1,0 +1,1 @@
+# RoadProof intentionally has no third-party Python dependencies.

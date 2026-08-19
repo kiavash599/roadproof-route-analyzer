@@ -12,7 +12,6 @@
     "url": "https://github.com/kiavash599/roadproof-route-analyzer.git"
   },
   "private": true,
-  "main": "desktop/main.cjs",
   "engines": {
     "node": ">=22.13.0"
   },
@@ -21,17 +20,12 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vite",
     "build": "bash scripts/build-verified.sh",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
+    "test:cli": "python -m unittest tests.test_cli -v",
     "test:unit": "node --experimental-strip-types --test tests/route-intelligence.test.ts",
-    "test": "npm run test:unit && npm run build && node --test tests/rendered-html.test.mjs",
+    "test": "npm run test:unit && npm run test:cli && npm run build && node --test tests/rendered-html.test.mjs",
     "validate:artifact": "bash scripts/validate-artifact.sh",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate",
-    "desktop:smoke": "npm run build && node desktop/smoke.cjs",
-    "desktop:dist": "npm run build && electron-builder --publish never",
-    "desktop:publish": "npm run build && electron-builder --publish always"
-  },
-  "dependencies": {
-    "electron-updater": "6.8.9"
+    "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "1.37.1",
@@ -43,8 +37,6 @@
     "@vitejs/plugin-rsc": "0.5.26",
     "drizzle-kit": "0.31.10",
     "drizzle-orm": "0.45.2",
-    "electron": "43.4.0",
-    "electron-builder": "26.15.3",
     "eslint": "9.39.4",
     "eslint-config-next": "16.2.6",
     "next": "16.2.6",
@@ -58,50 +50,5 @@
     "wrangler": "4.92.0"
   },
   "type": "module",
-  "displayName": "RoadProof",
-  "build": {
-    "appId": "com.kiavash599.roadproof",
-    "productName": "RoadProof",
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
-    "asar": true,
-    "directories": {
-      "buildResources": "build-resources",
-      "output": "release"
-    },
-    "files": [
-      "desktop/**/*",
-      "dist/client/**/*",
-      "dist/server/**/*",
-      "package.json"
-    ],
-    "publish": [
-      {
-        "provider": "github",
-        "owner": "kiavash599",
-        "repo": "roadproof-route-analyzer",
-        "releaseType": "release"
-      }
-    ],
-    "win": {
-      "icon": "build-resources/icon.png",
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ]
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "allowElevation": true,
-      "createDesktopShortcut": "always",
-      "createStartMenuShortcut": true,
-      "shortcutName": "RoadProof",
-      "runAfterFinish": true,
-      "deleteAppDataOnUninstall": false
-    }
-  }
+  "displayName": "RoadProof"
 }

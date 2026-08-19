@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "name": "Verified Denmark Copenhagen loop — current selection",
+  "analysis_date": "2026-08-19",
+  "country": "DK",
+  "adapter": "Danish Vejman official-road adapter",
+  "route_identity": {
+    "route_fingerprint": "595a90710f90084ca129847e6509fac42ea2a46a9f44e8fa8a8656254e0448dd",
+    "distance_m": 261710,
+    "maneuver_count": 41
+  },
+  "breakdown": [
+    {
+      "category": "Highway",
+      "official_layer": "Signed motorway (Motorvej)",
+      "distance_m": 163451.78627710743,
+      "status": "Inferred distance; official class confirmed"
+    },
+    {
+      "category": "Country",
+      "official_layer": "Other road outside built-up-area signs",
+      "distance_m": 84443.32743705431,
+      "status": "Inferred distance; official regime confirmed"
+    },
+    {
+      "category": "City",
+      "official_layer": "Other road inside built-up-area signs",
+      "distance_m": 8127.241207777981,
+      "status": "Inferred distance; official regime confirmed"
+    },
+    {
+      "category": "Unresolved",
+      "official_layer": "Short ramps, connectors and official-data bridge",
+      "distance_m": 5687.645078060255,
+      "status": "Unresolved"
+    }
+  ],
+  "inferred": [
+    "Exact Google section distances were allocated in proportion to the official matched-path classes.",
+    "The current Route 21 corridor (24.991 km by Google) matched a 25.076 km official path; endpoint snaps were 8.0 m and 20.5 m and the maximum official attribute join was 0.7 m.",
+    "Operational mapping: Highway = signed motorway; Country = non-motorway outside built-up-area signs; City = non-motorway inside built-up-area signs."
+  ],
+  "unresolved": [
+    "5.688 km of short ramps, connectors and conservative official-network gaps were not assigned to another category.",
+    "The legal source does not prescribe a universal GIS mapping for every country's road attributes."
+  ],
+  "method": "Forty of the current route's 41 maneuver anchors are identical to the retained official-network match. The one changed corridor stays on Route 21 instead of taking the earlier local-road detour. That 24.991 km Google corridor was rematched to the official numbered Route 21 network: official path 25.076 km (difference 84.5 m / 0.34%), endpoint snaps 8.0 m and 20.5 m, and official speed-layer join no farther than 0.7 m. Its official path is signed Motorvej except for a retained 1.4 m unresolved data bridge. Unchanged sections retain their prior verified official paths; all exact allocations are calibrated to the current 261.710 km Google total.",
+  "official_sources": [
+    "Vejman `hastighedsgraenser`: 44,218 features; snapshot timestamp 2026-08-18T22:33:29.813Z.",
+    "Vejman `rutenummereret-vejnet`: 1,161 features; snapshot timestamp 2026-08-18T22:35:45.236Z.",
+    "Danish road and path register regulation: https://www.retsinformation.dk/api/pdf/177057",
+    "Vejman WFS guidance: https://vejman.scrollhelp.site/hjaelpecenter/anvende-stedfstelse-i-egne-programmer"
+  ]
+}
+

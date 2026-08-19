@@ -10,25 +10,26 @@ support compliance testing, route design, fleet QA and research.
 
 ## Product status
 
-This repository is an honest first product increment:
+RoadProof now combines a Windows PowerShell-first analyzer with the existing
+web evidence-intake interface. The PowerShell tool:
 
-- safe, allowlisted Google short-link resolution with redirect limits;
-- route-request fingerprints that never stand in for geometry hashes;
-- local GPX, GeoJSON and KML track import with stable SHA-256 identity and
-  geodesic length;
-- polished, responsive evidence-intake and report UI;
-- a verified Denmark example based on a reproducible route-analysis record;
-- canonical Europe-wide road bucket and evidence types;
-- explicit `Confirmed`, `Inferred`, and `Unresolved` handling;
-- cross-border/country-adapter architecture;
-- no false claim of pan-European official-data coverage.
+- resolves a shared Google Maps route link;
+- reads the route selected by Google instead of re-routing its waypoints;
+- reconciles Google's exact route total with its maneuver distances;
+- identifies the route by a link-independent maneuver-level evidence fingerprint;
+- prints a colored Highway / Country / City / Unresolved table in PowerShell;
+- writes the same detailed result to a timestamped Markdown report;
+- reuses a retained official-road analysis only when that evidence fingerprint matches.
 
-The public prototype resolves supported European Google Maps directions links,
-but only renders road-type kilometre results when a matching evidence package
-exists. A Google directions URL is not treated as an official exact-polyline
-export. Imported track identity can be confirmed now; Google-link-to-track
-equivalence, map matching and additional national adapters remain explicit
-backend/evidence milestones.
+The included Denmark evidence package covers the verified Copenhagen loop.
+Other links still receive a confirmed Google total, but their entire distance
+remains `Unresolved` until an official country-adapter evidence package matches.
+RoadProof never substitutes an invented classification.
+
+The web interface separately supports safe Google request resolution and local
+GPX, GeoJSON, and KML import. A maneuver-level evidence fingerprint does not
+claim to be a full polyline hash; imported exact-track identity and Google
+route evidence remain visibly distinct.
 
 ## Classification policy
 
@@ -63,9 +64,45 @@ The interface currently provides:
 Additional public or organization-specific profiles can be added without
 changing the underlying road evidence.
 
-## Run locally
+## Install on Windows
 
-Requirements: Node.js 22.13 or newer.
+Clone or download this repository, open PowerShell in its folder, and run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\installer.ps1
+```
+
+`installer.ps1` detects Python 3.10 or newer. If Python is missing, it installs
+Python 3.12 for the current user through `winget`, creates an isolated `.venv`,
+installs the declared requirements, and runs a self-check. No administrator
+rights, Windows application installer, Electron, or macOS package is used.
+
+## Analyze a route
+
+Interactive use:
+
+```powershell
+.\start.ps1
+```
+
+Paste the Google Maps route link when prompted. Or pass it directly:
+
+```powershell
+.\start.ps1 "https://maps.app.goo.gl/rbGN7YeiTqY5E74n9"
+```
+
+The default report includes the EU ISA profile checks. For composition only:
+
+```powershell
+.\start.ps1 "https://maps.app.goo.gl/rbGN7YeiTqY5E74n9" -Profile composition
+```
+
+Reports are saved under `reports\roadproof-<timestamp>-<fingerprint>.md`.
+
+## Web interface
+
+The responsive web interface remains a secondary prototype. Its local
+development requirements are Node.js 22.13 or newer:
 
 ```bash
 npm ci
@@ -75,23 +112,10 @@ npm run dev
 Open the local URL printed by the development server. Use **Load stored Denmark
 pilot** to inspect the legacy evidence record.
 
-## Desktop installers
-
-RoadProof includes a desktop shell for the existing GUI and an automated
-Windows installer build:
-
-- Windows x64: one-click, per-user `.exe` installer with desktop and Start Menu
-  shortcuts;
-- update metadata for in-app update checks against GitHub Releases.
-
-Run the **Desktop installers** workflow manually to create downloadable workflow
-artifacts. A change to the packaged application on `main` creates the Windows
-release for the version in `package.json`; a matching version tag can do the same. See
-[`desktop/README.md`](desktop/README.md) for signing and local validation.
-
 ## Validate
 
 ```bash
+python -m unittest tests.test_cli -v
 npm run lint
 npm run test:unit
 npm run build
@@ -104,6 +128,7 @@ npm run validate:artifact
 
 ## Privacy and credentials
 
-The current frontend requests no Google login, Google API key, private token,
-or user location. Future country adapters must use public official datasets or
-document any optional credential separately.
+The PowerShell tool requests no Google login, Google API key, private token, or
+user location. It sends the supplied public link to Google Maps and stores only
+the generated Markdown report locally. Future country adapters must use public
+official datasets or document any optional credential separately.
