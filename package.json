@@ -1,6 +1,6 @@
 {
   "name": "roadproof-route-analyzer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Evidence-first, multi-purpose European road-type and route composition analyzer.",
   "author": {
     "name": "Kiavash",
@@ -21,7 +21,8 @@
     "dev": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vite",
     "build": "bash scripts/build-verified.sh",
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
-    "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "test:unit": "node --experimental-strip-types --test tests/route-intelligence.test.ts",
+    "test": "npm run test:unit && npm run build && node --test tests/rendered-html.test.mjs",
     "validate:artifact": "bash scripts/validate-artifact.sh",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate",
@@ -101,38 +102,6 @@
       "shortcutName": "RoadProof",
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false
-    },
-    "mac": {
-      "icon": "build-resources/icon.png",
-      "category": "public.app-category.navigation",
-      "hardenedRuntime": true,
-      "gatekeeperAssess": false,
-      "target": [
-        {
-          "target": "pkg",
-          "arch": [
-            "universal"
-          ]
-        },
-        {
-          "target": "dmg",
-          "arch": [
-            "universal"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "universal"
-          ]
-        }
-      ]
-    },
-    "pkg": {
-      "installLocation": "/Applications",
-      "allowAnywhere": false,
-      "allowCurrentUserHome": false,
-      "allowRootDirectory": false
     }
   }
 }

@@ -16,25 +16,19 @@ npm run desktop:smoke
 npm run desktop:dist
 ```
 
-The target is selected from the build host:
-
-- Windows: one-click, per-user NSIS installer (`.exe`).
-- macOS: universal Apple Silicon/Intel installer (`.pkg`), disk image (`.dmg`),
-  and update archive (`.zip`).
+The current target is Windows x64: a one-click, per-user NSIS installer
+(`.exe`) with desktop and Start Menu shortcuts.
 
 GitHub Actions stores installers as workflow artifacts for manual builds. A
 desktop-packaging change on `main` publishes the version from `package.json`;
 a tag such as `v1.0.0` can also create the matching GitHub Release.
 
-## Signing and notarization
+## Signing
 
-Unsigned builds are useful for internal testing but operating systems can show
-security warnings. Production releases should configure these repository
-secrets:
+Unsigned builds are useful for internal testing but Windows can show a security
+warning. Production releases should configure these repository secrets:
 
 - `WINDOWS_CSC_LINK` and `WINDOWS_CSC_KEY_PASSWORD`
-- `MACOS_CSC_LINK` and `MACOS_CSC_KEY_PASSWORD`
-- `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID`
 
 The workflow passes those values only to the packaging process. Certificates
 and passwords must never be committed to the repository.

@@ -2,25 +2,33 @@
 
 Multi-purpose, evidence-first road-type analysis for European routes.
 
-RoadProof accepts a Google Maps route link and is designed to preserve the
-exact selected route, match its segments against country-specific official
-road data, and report distance by defensible road categories. The same evidence
-layer can support compliance testing, route design, fleet QA and research.
+RoadProof accepts a Google Maps route link, resolves its ordered route request,
+and keeps that identity separate from an imported exact-track file. It is
+designed to match supplied geometry against country-specific official road data
+and report distance by defensible road categories. The same evidence layer can
+support compliance testing, route design, fleet QA and research.
 
 ## Product status
 
 This repository is an honest first product increment:
 
-- polished, responsive route-intake and report UI;
+- safe, allowlisted Google short-link resolution with redirect limits;
+- route-request fingerprints that never stand in for geometry hashes;
+- local GPX, GeoJSON and KML track import with stable SHA-256 identity and
+  geodesic length;
+- polished, responsive evidence-intake and report UI;
 - a verified Denmark example based on a reproducible route-analysis record;
 - canonical Europe-wide road bucket and evidence types;
 - explicit `Confirmed`, `Inferred`, and `Unresolved` handling;
 - cross-border/country-adapter architecture;
 - no false claim of pan-European official-data coverage.
 
-The public prototype validates arbitrary Google Maps links, but only renders
-kilometre results when a stored evidence package exists. Live exact-geometry
-extraction and additional national adapters are the next backend milestones.
+The public prototype resolves supported European Google Maps directions links,
+but only renders road-type kilometre results when a matching evidence package
+exists. A Google directions URL is not treated as an official exact-polyline
+export. Imported track identity can be confirmed now; Google-link-to-track
+equivalence, map matching and additional national adapters remain explicit
+backend/evidence milestones.
 
 ## Classification policy
 
@@ -64,28 +72,28 @@ npm ci
 npm run dev
 ```
 
-Open the local URL printed by the development server. Use **Load verified
-Denmark example** to inspect the stored pilot report.
+Open the local URL printed by the development server. Use **Load stored Denmark
+pilot** to inspect the legacy evidence record.
 
 ## Desktop installers
 
-RoadProof includes an offline desktop shell for the existing GUI and automated
-installer builds:
+RoadProof includes a desktop shell for the existing GUI and an automated
+Windows installer build:
 
 - Windows x64: one-click, per-user `.exe` installer with desktop and Start Menu
   shortcuts;
-- macOS: universal Intel/Apple Silicon `.pkg`, `.dmg`, and `.zip` packages;
 - update metadata for in-app update checks against GitHub Releases.
 
 Run the **Desktop installers** workflow manually to create downloadable workflow
-artifacts. A change to the desktop packaging on `main` creates the release for
-the version in `package.json`; a matching version tag can do the same. See
+artifacts. A change to the packaged application on `main` creates the Windows
+release for the version in `package.json`; a matching version tag can do the same. See
 [`desktop/README.md`](desktop/README.md) for signing and local validation.
 
 ## Validate
 
 ```bash
 npm run lint
+npm run test:unit
 npm run build
 npm run validate:artifact
 ```
