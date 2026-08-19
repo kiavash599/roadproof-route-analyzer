@@ -22,8 +22,9 @@ The target is selected from the build host:
 - macOS: universal Apple Silicon/Intel installer (`.pkg`), disk image (`.dmg`),
   and update archive (`.zip`).
 
-GitHub Actions stores installers as workflow artifacts for manual builds. A tag
-such as `v1.0.0` also creates a GitHub Release and attaches the installers.
+GitHub Actions stores installers as workflow artifacts for manual builds. A
+desktop-packaging change on `main` publishes the version from `package.json`;
+a tag such as `v1.0.0` can also create the matching GitHub Release.
 
 ## Signing and notarization
 

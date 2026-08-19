@@ -78,8 +78,8 @@ installer builds:
 - update metadata for in-app update checks against GitHub Releases.
 
 Run the **Desktop installers** workflow manually to create downloadable workflow
-artifacts. Pushing a version tag such as `v1.0.0` creates a GitHub Release and
-attaches all Windows and macOS packages. See
+artifacts. A change to the desktop packaging on `main` creates the release for
+the version in `package.json`; a matching version tag can do the same. See
 [`desktop/README.md`](desktop/README.md) for signing and local validation.
 
 ## Validate

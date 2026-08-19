@@ -3,8 +3,16 @@ name: Desktop installers
 on:
   workflow_dispatch:
   push:
+    branches:
+      - main
     tags:
       - "v*"
+    paths:
+      - ".github/workflows/desktop-release.yml"
+      - "build-resources/**"
+      - "desktop/**"
+      - "package.json"
+      - "package-lock.json"
 
 permissions:
   contents: write
@@ -69,14 +77,27 @@ jobs:
 
   release:
     name: Publish tagged release
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main'
     needs: [windows, macos]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" artifacts/**/* --generate-notes --verify-tag
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            release_tag="$GITHUB_REF_NAME"
+            gh release create "$release_tag" artifacts/**/* --generate-notes --verify-tag
+          else
+            release_tag="v$(node -p \"require('./package.json').version\")"
+            if gh release view "$release_tag" >/dev/null 2>&1; then
+              echo "Release $release_tag already exists. Bump package.json before publishing another installer release." >&2
+              exit 1
+            fi
+            gh release create "$release_tag" artifacts/**/* --generate-notes --target "$GITHUB_SHA"
+          fi
