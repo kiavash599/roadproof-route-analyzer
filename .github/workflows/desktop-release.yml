@@ -27,8 +27,8 @@ jobs:
     name: Windows installer
     runs-on: windows-latest
     env:
-      CSC_LINK: ${{ secrets.WINDOWS_CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CSC_LINK }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CSC_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,6 +37,12 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run desktop:smoke
+      - name: Configure Windows signing
+        if: env.WINDOWS_CERTIFICATE != ''
+        shell: bash
+        run: |
+          echo "CSC_LINK=$WINDOWS_CERTIFICATE" >> "$GITHUB_ENV"
+          echo "CSC_KEY_PASSWORD=$WINDOWS_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
       - run: npm run desktop:dist
       - uses: actions/upload-artifact@v4
         with:
@@ -51,11 +57,11 @@ jobs:
     name: macOS universal installer
     runs-on: macos-14
     env:
-      CSC_LINK: ${{ secrets.MACOS_CSC_LINK }}
-      CSC_KEY_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CSC_LINK }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CSC_KEY_PASSWORD }}
+      NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
+      NOTARY_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      NOTARY_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -64,6 +70,17 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run desktop:smoke
+      - name: Configure macOS signing
+        if: env.MACOS_CERTIFICATE != ''
+        run: |
+          echo "CSC_LINK=$MACOS_CERTIFICATE" >> "$GITHUB_ENV"
+          echo "CSC_KEY_PASSWORD=$MACOS_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
+      - name: Configure Apple notarization
+        if: env.NOTARY_APPLE_ID != '' && env.NOTARY_PASSWORD != '' && env.NOTARY_TEAM_ID != ''
+        run: |
+          echo "APPLE_ID=$NOTARY_APPLE_ID" >> "$GITHUB_ENV"
+          echo "APPLE_APP_SPECIFIC_PASSWORD=$NOTARY_PASSWORD" >> "$GITHUB_ENV"
+          echo "APPLE_TEAM_ID=$NOTARY_TEAM_ID" >> "$GITHUB_ENV"
       - run: npm run desktop:dist
       - uses: actions/upload-artifact@v4
         with:
