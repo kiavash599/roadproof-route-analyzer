@@ -112,7 +112,8 @@ jobs:
             release_tag="$GITHUB_REF_NAME"
             gh release create "$release_tag" artifacts/**/* --generate-notes --verify-tag
           else
-            release_tag="v$(node -p \"require('./package.json').version\")"
+            package_version=$(node -e "process.stdout.write(require('./package.json').version)")
+            release_tag="v${package_version}"
             if gh release view "$release_tag" >/dev/null 2>&1; then
               echo "Release $release_tag already exists. Bump package.json before publishing another installer release." >&2
               exit 1
