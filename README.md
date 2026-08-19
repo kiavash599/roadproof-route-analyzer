@@ -10,15 +10,17 @@ support compliance testing, route design, fleet QA and research.
 
 ## Product status
 
-RoadProof now combines a Windows PowerShell-first analyzer with the existing
-web evidence-intake interface. The PowerShell tool:
+RoadProof now combines a cross-platform terminal analyzer with the existing
+web evidence-intake interface. The terminal tool:
 
-- resolves a shared Google Maps route link;
+- accepts short shared links and full Google Maps address-bar route URLs;
+- resolves the supplied Google Maps route link safely;
 - reads the route selected by Google instead of re-routing its waypoints;
 - reconciles Google's exact route total with its maneuver distances;
 - identifies the route by a link-independent maneuver-level evidence fingerprint;
-- prints a colored Highway / Country / City / Unresolved table in PowerShell;
-- writes the same detailed result to a timestamped Markdown report;
+- prints styled, adaptive Highway / Country / City / Unresolved tables on
+  Windows, macOS and Linux;
+- writes the same detailed result to a meaningful, uniquely named Markdown report;
 - reuses a retained official-road analysis only when that evidence fingerprint matches.
 
 The included Denmark evidence package covers the verified Copenhagen loop.
@@ -64,6 +66,19 @@ The interface currently provides:
 Additional public or organization-specific profiles can be added without
 changing the underlying road evidence.
 
+## Supported route links
+
+RoadProof accepts both common clipboard forms:
+
+```text
+https://maps.app.goo.gl/...
+https://www.google.com/maps/dir/Origin/Destination/...
+```
+
+Legacy `https://goo.gl/maps/...` links and supported localized European Google
+Maps domains are also recognized. Clipboard labels, surrounding quotes, angle
+brackets and harmless whitespace are removed before the URL is validated.
+
 ## Install on Windows
 
 Clone or download this repository, open PowerShell in its folder, and run:
@@ -74,12 +89,25 @@ powershell -ExecutionPolicy Bypass -File .\installer.ps1
 
 `installer.ps1` detects Python 3.10 or newer. If Python is missing, it installs
 Python 3.12 for the current user through `winget`, creates an isolated `.venv`,
-installs the declared requirements, and runs a self-check. No administrator
-rights, Windows application installer, Electron, or macOS package is used.
+installs the pinned requirements, and runs a self-check. No Windows desktop
+application, Electron package, Google key or private token is used.
+
+## Install on macOS or Linux
+
+Open Terminal in the project folder and run:
+
+```bash
+bash ./installer.sh
+```
+
+The installer uses an existing Python 3.10+ when available. On macOS it can use
+Homebrew; on supported Linux distributions it can use `apt`, `dnf`, `pacman`,
+or `zypper`. System package installation may request administrator permission.
+The RoadProof Python packages themselves are always isolated inside `.venv`.
 
 ## Analyze a route
 
-Interactive use:
+Interactive Windows use:
 
 ```powershell
 .\start.ps1
@@ -91,13 +119,43 @@ Paste the Google Maps route link when prompted. Or pass it directly:
 .\start.ps1 "https://maps.app.goo.gl/rbGN7YeiTqY5E74n9"
 ```
 
+`start.bat` is also provided for Command Prompt and double-click use. It opens
+the same PowerShell launcher and does not contain a second implementation.
+
+Interactive macOS or Linux use:
+
+```bash
+./start.sh
+```
+
+Or pass either link format directly:
+
+```bash
+./start.sh "https://www.google.com/maps/dir/Origin/Destination/..."
+```
+
 The default report includes the EU ISA profile checks. For composition only:
 
 ```powershell
 .\start.ps1 "https://maps.app.goo.gl/rbGN7YeiTqY5E74n9" -Profile composition
 ```
 
-Reports are saved under `reports\roadproof-<timestamp>-<fingerprint>.md`.
+The equivalent terminal option is:
+
+```bash
+./start.sh "https://maps.app.goo.gl/rbGN7YeiTqY5E74n9" --profile composition
+```
+
+Reports are saved under `reports` with a meaningful, collision-safe name:
+
+```text
+roadproof-<origin>-to-<destination>-<timestamp>-<fingerprint>.md
+```
+
+Round trips use `<origin>-loop`; when Google does not expose endpoint labels,
+the route name is used instead.
+Set the standard `NO_COLOR` environment variable when plain terminal output is
+preferred.
 
 ## Web interface
 
@@ -128,7 +186,7 @@ npm run validate:artifact
 
 ## Privacy and credentials
 
-The PowerShell tool requests no Google login, Google API key, private token, or
+The terminal tool requests no Google login, Google API key, private token, or
 user location. It sends the supplied public link to Google Maps and stores only
 the generated Markdown report locally. Future country adapters must use public
 official datasets or document any optional credential separately.

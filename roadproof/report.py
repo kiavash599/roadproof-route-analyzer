@@ -8,6 +8,18 @@ from pathlib import Path
 import re
 import shutil
 from typing import Any
+import unicodedata
+
+try:
+    from rich import box
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+    from rich.text import Text
+
+    RICH_AVAILABLE = True
+except ImportError:  # pragma: no cover - exercised only before installer runs
+    RICH_AVAILABLE = False
 
 
 CATEGORY_COLORS = {
@@ -111,14 +123,14 @@ def print_table(title: str, headers: list[str], rows: list[list[str]], right_col
     print("└" + "┴".join("─" * (width + 2) for width in widths) + "┘")
 
 
-def render_console(
+def _render_ansi_console(
     route: dict[str, Any],
     rows: list[dict[str, Any]],
     evidence: dict[str, Any] | None,
     output_path: Path,
     profile: str,
 ) -> None:
-    evidence_text = "Matched verified Denmark evidence package" if evidence else "No matching road-network evidence package"
+    evidence_text = "Matched verified official-road evidence package" if evidence else "No matching road-network evidence package"
     print("\n" + color("  ROADPROOF  ", "white", bold=True) + color(" Evidence-first route analysis", "blue", bold=True))
     print_table(
         "Route summary",
@@ -176,6 +188,116 @@ def render_console(
     print("\n" + color("Markdown report saved:", "green", bold=True) + f" {output_path}")
 
 
+def _rich_status(value: str) -> Text:
+    lowered = value.lower()
+    style = "bold green" if "confirmed" in lowered or value == "Meets" else "bold yellow"
+    if "short by" in lowered:
+        style = "bold red"
+    if "inferred" in lowered:
+        style = "bold cyan"
+    return Text(value, style=style)
+
+
+def _render_rich_console(
+    route: dict[str, Any],
+    rows: list[dict[str, Any]],
+    evidence: dict[str, Any] | None,
+    output_path: Path,
+    profile: str,
+) -> None:
+    console = Console(highlight=False, soft_wrap=False)
+    console.print()
+    console.print(
+        Panel.fit(
+            "[bold white]ROADPROOF[/bold white]  [bold bright_blue]Evidence-first route analysis[/bold bright_blue]",
+            border_style="bright_blue",
+            padding=(0, 2),
+        )
+    )
+
+    summary = Table(title="Route summary", box=box.ROUNDED, header_style="bold cyan", show_lines=True)
+    summary.add_column("Field", style="bold white", no_wrap=True)
+    summary.add_column("Value", overflow="fold")
+    summary.add_row("Route", str(route["route_name"]))
+    if route.get("origin_name") and route.get("destination_name"):
+        summary.add_row("Endpoints", f"{route['origin_name']} -> {route['destination_name']}")
+    summary.add_row("Exact distance", f"{route['distance_m'] / 1000:.3f} km")
+    summary.add_row("Google duration", duration_text(route["duration_s"]))
+    summary.add_row("Legs / maneuvers", f"{len(route['legs'])} / {route['maneuver_count']}")
+    evidence_text = (
+        Text("Matched verified official-road evidence package", style="bold green")
+        if evidence
+        else Text("No matching road-network evidence package", style="bold yellow")
+    )
+    summary.add_row("Evidence", evidence_text)
+    summary.add_row("Profile", "EU ISA 2021/1958" if profile == "eu-isa" else "Composition only")
+    summary.add_row("Fingerprint", route["route_fingerprint"][:16] + "...")
+    console.print(summary)
+
+    composition = Table(title="Road-type composition", box=box.ROUNDED, header_style="bold cyan", show_lines=True)
+    composition.add_column("Category", no_wrap=True)
+    composition.add_column("Official / evidence layer", overflow="fold", max_width=54)
+    composition.add_column("Distance", justify="right", no_wrap=True)
+    composition.add_column("Share", justify="right", no_wrap=True)
+    composition.add_column("Evidence status", overflow="fold")
+    category_styles = {
+        "Highway": "bold bright_blue",
+        "Country": "bold green",
+        "City": "bold magenta",
+        "Unresolved": "bold yellow",
+    }
+    total = float(route["distance_m"])
+    for row in rows:
+        distance_m = float(row["distance_m"])
+        composition.add_row(
+            Text(row["category"], style=category_styles[row["category"]]),
+            str(row["official_layer"]),
+            f"{distance_m / 1000:.3f} km",
+            f"{100 * distance_m / total:.2f}%",
+            _rich_status(str(row["status"])),
+        )
+    console.print(composition)
+
+    if profile == "eu-isa":
+        targets = Table(title="EU ISA profile check", box=box.ROUNDED, header_style="bold cyan", show_lines=True)
+        targets.add_column("Check", style="bold white")
+        targets.add_column("Measured", justify="right", no_wrap=True)
+        targets.add_column("Target", justify="right", no_wrap=True)
+        targets.add_column("Result", overflow="fold")
+        overall_result = "Meets" if total >= 400_000 else f"Short by {(400_000-total)/1000:.3f} km"
+        targets.add_row("Overall distance", f"{total / 1000:.3f} km", "400.000 km", _rich_status(overall_result))
+        for category in ("Highway", "Country", "City"):
+            distance_m = next(float(row["distance_m"]) for row in rows if row["category"] == category)
+            result = "Meets" if distance_m >= 100_000 else f"Short by {(100_000-distance_m)/1000:.3f} km"
+            targets.add_row(category, f"{distance_m / 1000:.3f} km", "100.000 km", _rich_status(result))
+        targets.add_row("Darkness", "Not measured", "60.000 km / 15%", _rich_status("Unresolved"))
+        console.print(targets)
+
+    console.print(
+        Panel(
+            Text.assemble(
+                ("Markdown report saved\n", "bold green"),
+                (str(output_path), "white"),
+            ),
+            border_style="green",
+            expand=False,
+        )
+    )
+
+
+def render_console(
+    route: dict[str, Any],
+    rows: list[dict[str, Any]],
+    evidence: dict[str, Any] | None,
+    output_path: Path,
+    profile: str,
+) -> None:
+    if RICH_AVAILABLE:
+        _render_rich_console(route, rows, evidence, output_path, profile)
+    else:
+        _render_ansi_console(route, rows, evidence, output_path, profile)
+
+
 def _markdown_table(rows: list[dict[str, Any]], total_m: float) -> str:
     lines = [
         "| Road type | Official / evidence layer | Distance | Share | Status |",
@@ -184,10 +306,15 @@ def _markdown_table(rows: list[dict[str, Any]], total_m: float) -> str:
     for row in rows:
         distance_m = float(row["distance_m"])
         lines.append(
-            f"| {row['category']} | {row['official_layer']} | {distance_m / 1000:.3f} km | "
-            f"{100 * distance_m / total_m:.2f}% | **{row['status']}** |"
+            f"| {_markdown_cell(row['category'])} | {_markdown_cell(row['official_layer'])} | "
+            f"{distance_m / 1000:.3f} km | {100 * distance_m / total_m:.2f}% | "
+            f"**{_markdown_cell(row['status'])}** |"
         )
     return "\n".join(lines)
+
+
+def _markdown_cell(value: Any) -> str:
+    return str(value).replace("\\", "\\\\").replace("|", "\\|").replace("\r", " ").replace("\n", "<br>")
 
 
 def markdown_report(
@@ -205,14 +332,35 @@ def markdown_report(
         f"Analysis date: {created_at.astimezone().isoformat(timespec='seconds')}",
         "",
         f"Input route: <{route['input_url']}>",
+        f"Resolved route: <{route['resolved_url']}>",
         "",
         "## Outcome",
         "",
         f"The Google-selected route is **{total_m / 1000:.3f} km** with "
+        f"a Google duration of **{duration_text(route['duration_s'])}**, "
         f"**{route['maneuver_count']} maneuvers** across **{len(route['legs'])} legs**. "
         f"The Google route total reconciles with the maneuver sum.",
         "",
+        "| Route field | Value |",
+        "|---|---|",
+        f"| Route name | {_markdown_cell(route['route_name'])} |",
+        f"| Origin | {_markdown_cell(route.get('origin_name') or 'Not exposed by the Google URL')} |",
+        f"| Destination | {_markdown_cell(route.get('destination_name') or 'Not exposed by the Google URL')} |",
+        f"| Exact distance | {total_m / 1000:.3f} km |",
+        f"| Google duration | {duration_text(route['duration_s'])} |",
+        f"| Legs / maneuvers | {len(route['legs'])} / {route['maneuver_count']} |",
+        f"| Maneuver-distance sum | {route['maneuver_sum_m'] / 1000:.3f} km |",
+        "",
+        "### Leg summary",
+        "",
+        "| Leg | Distance | Google duration |",
+        "|---:|---:|---:|",
     ]
+    for leg in route["legs"]:
+        lines.append(
+            f"| {leg['leg']} | {leg['distance_m'] / 1000:.3f} km | {duration_text(leg['duration_s'])} |"
+        )
+    lines.append("")
     if matched:
         lines.extend(
             [
@@ -310,10 +458,54 @@ def markdown_report(
     return "\n".join(lines)
 
 
-def save_report(output_dir: Path, content: str, created_at: datetime, fingerprint: str) -> Path:
-    output_dir.mkdir(parents=True, exist_ok=True)
+WINDOWS_RESERVED_NAMES = {
+    "con",
+    "prn",
+    "aux",
+    "nul",
+    *(f"com{number}" for number in range(1, 10)),
+    *(f"lpt{number}" for number in range(1, 10)),
+}
+
+
+def _safe_filename_component(value: str, *, max_length: int = 76) -> str:
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    characters = [char if char.isalnum() or char in {"-", "_"} else "-" for char in normalized]
+    safe = re.sub(r"-+", "-", "".join(characters)).strip("-_. ")
+    safe = safe[:max_length].rstrip("-_. ")
+    if not safe:
+        safe = "google-route"
+    if safe in WINDOWS_RESERVED_NAMES:
+        safe = f"route-{safe}"
+    return safe
+
+
+def report_filename(route: dict[str, Any], created_at: datetime) -> str:
+    origin = route.get("origin_name")
+    destination = route.get("destination_name")
+    if origin and destination:
+        if str(origin).strip().casefold() == str(destination).strip().casefold():
+            label = f"{origin}-loop"
+        else:
+            label = f"{origin}-to-{destination}"
+    else:
+        label = str(route.get("route_name") or "google-route")
+    safe_label = _safe_filename_component(label)
     safe_stamp = created_at.strftime("%Y%m%d-%H%M%S")
-    safe_hash = re.sub(r"[^a-f0-9]", "", fingerprint.lower())[:10]
-    path = output_dir / f"roadproof-{safe_stamp}-{safe_hash}.md"
-    path.write_text(content, encoding="utf-8")
-    return path.resolve()
+    safe_hash = re.sub(r"[^a-f0-9]", "", str(route["route_fingerprint"]).lower())[:10]
+    return f"roadproof-{safe_label}-{safe_stamp}-{safe_hash}.md"
+
+
+def save_report(output_dir: Path, content: str, created_at: datetime, route: dict[str, Any]) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    requested = output_dir / report_filename(route, created_at)
+    candidate = requested
+    collision = 2
+    while True:
+        try:
+            with candidate.open("x", encoding="utf-8", newline="\n") as handle:
+                handle.write(content)
+            return candidate.resolve()
+        except FileExistsError:
+            candidate = requested.with_name(f"{requested.stem}-{collision}{requested.suffix}")
+            collision += 1

@@ -13,27 +13,83 @@ import json
 import math
 import re
 from typing import Any
-from urllib.parse import parse_qs, urljoin, urlparse
+from urllib.parse import parse_qs, unquote_plus, urljoin, urlparse
 from http.cookiejar import CookieJar
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPCookieProcessor, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, Request, build_opener
 
 
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36"
 )
-ALLOWED_INPUT_HOSTS = {
+SHORT_GOOGLE_HOSTS = {
     "maps.app.goo.gl",
     "goo.gl",
+}
+GOOGLE_COUNTRY_DOMAINS = {
+    "google.at",
+    "google.be",
+    "google.ch",
+    "google.co.uk",
+    "google.com",
+    "google.cz",
+    "google.de",
+    "google.dk",
+    "google.es",
+    "google.fi",
+    "google.fr",
+    "google.ie",
+    "google.it",
+    "google.nl",
+    "google.no",
+    "google.pl",
+    "google.pt",
+    "google.se",
+}
+ALLOWED_INPUT_HOSTS = {
+    *SHORT_GOOGLE_HOSTS,
     "google.com",
     "www.google.com",
     "maps.google.com",
+    *(f"www.{domain}" for domain in GOOGLE_COUNTRY_DOMAINS),
+    *(f"maps.{domain}" for domain in GOOGLE_COUNTRY_DOMAINS),
+    *GOOGLE_COUNTRY_DOMAINS,
 }
+URL_IN_TEXT_RE = re.compile(r"https://[^\s<>\"']+", re.IGNORECASE)
 
 
 class RouteReadError(RuntimeError):
     """Raised when the selected Google route cannot be read defensibly."""
+
+
+def _validate_redirect_url(url: str) -> None:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise RouteReadError("Google returned a redirect with an invalid port.") from exc
+    if (
+        parsed.scheme == "https"
+        and host == "consent.google.com"
+        and parsed.username is None
+        and parsed.password is None
+        and port in (None, 443)
+    ):
+        return
+    try:
+        _validate_input_url(url)
+    except RouteReadError as exc:
+        raise RouteReadError("Google attempted to redirect outside the allowed Maps hosts.") from exc
+
+
+class SafeGoogleRedirectHandler(HTTPRedirectHandler):
+    """Reject a redirect before urllib sends a request to an unexpected host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        _validate_redirect_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
 class DirectionsPreloadParser(HTMLParser):
@@ -52,12 +108,78 @@ class DirectionsPreloadParser(HTMLParser):
 
 
 def _validate_input_url(url: str) -> None:
-    parsed = urlparse(url.strip())
+    parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
-    if parsed.scheme != "https" or host not in ALLOWED_INPUT_HOSTS:
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise RouteReadError("The Google Maps URL contains an invalid port.") from exc
+    if (
+        parsed.scheme.lower() != "https"
+        or host not in ALLOWED_INPUT_HOSTS
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, 443)
+    ):
         raise RouteReadError(
             "Use an HTTPS Google Maps route link (for example https://maps.app.goo.gl/...)."
         )
+    if host in SHORT_GOOGLE_HOSTS:
+        if parsed.path in ("", "/"):
+            raise RouteReadError("The short Google Maps link is incomplete.")
+    elif not parsed.path.startswith("/maps"):
+        raise RouteReadError("The URL opens Google, but it is not a Google Maps link.")
+
+
+def normalize_google_maps_url(value: str) -> str:
+    """Extract and validate one pasted Google Maps HTTPS URL.
+
+    Clipboard contents sometimes include surrounding quotes, angle brackets,
+    a descriptive label, or a trailing full stop. Only the URL is retained.
+    """
+    text = html.unescape(str(value or "")).strip()
+    if len(text) >= 2 and (text[0], text[-1]) in {
+        ('"', '"'),
+        ("'", "'"),
+        ("<", ">"),
+        ("(", ")"),
+        ("[", "]"),
+    }:
+        text = text[1:-1].strip()
+    match = URL_IN_TEXT_RE.search(text)
+    if match is None:
+        raise RouteReadError("No HTTPS Google Maps URL was found in the pasted text.")
+    url = match.group(0).rstrip(".,;")
+    _validate_input_url(url)
+    return url
+
+
+def route_endpoints_from_url(url: str) -> tuple[str | None, str | None]:
+    """Return human-readable origin/destination labels when the URL exposes them."""
+    parsed = urlparse(url)
+    query = parse_qs(parsed.query)
+    origin = next(iter(query.get("origin", [])), None)
+    destination = next(iter(query.get("destination", [])), None)
+    if origin and destination:
+        return _strip_markup(origin), _strip_markup(destination)
+
+    parts = [unquote_plus(part).strip() for part in parsed.path.split("/")]
+    try:
+        direction_index = parts.index("dir")
+    except ValueError:
+        return None, None
+    candidates: list[str] = []
+    for part in parts[direction_index + 1 :]:
+        if not part:
+            continue
+        if part.startswith("@") or part.startswith("data="):
+            break
+        if part.startswith("!"):
+            continue
+        candidates.append(_strip_markup(part))
+    if len(candidates) < 2:
+        return None, None
+    return candidates[0], candidates[-1]
 
 
 def _strip_markup(value: str | None) -> str:
@@ -173,9 +295,12 @@ def parse_directions_response(body: bytes, *, input_url: str, resolved_url: str)
         except (IndexError, TypeError):
             leg_rows.append({"leg": index + 1, "distance_m": 0, "duration_s": 0})
 
+    origin_name, destination_name = route_endpoints_from_url(resolved_url)
     return {
         "input_url": input_url,
         "resolved_url": resolved_url,
+        "origin_name": origin_name,
+        "destination_name": destination_name,
         "route_name": str(header[1] or "Google-selected route"),
         "distance_m": distance_m,
         "duration_s": _number(header[3][0]),
@@ -189,9 +314,8 @@ def parse_directions_response(body: bytes, *, input_url: str, resolved_url: str)
 
 
 def fetch_google_route(url: str, *, timeout: int = 60) -> dict[str, Any]:
-    input_url = url.strip()
-    _validate_input_url(input_url)
-    opener = build_opener(HTTPCookieProcessor(CookieJar()))
+    input_url = normalize_google_maps_url(url)
+    opener = build_opener(HTTPCookieProcessor(CookieJar()), SafeGoogleRedirectHandler())
     headers = {
         "User-Agent": USER_AGENT,
         "Accept-Language": "en-US,en;q=0.9",
@@ -231,6 +355,11 @@ def fetch_google_route(url: str, *, timeout: int = 60) -> dict[str, Any]:
         except (HTTPError, URLError, TimeoutError, OSError) as exc:
             raise RouteReadError(f"Could not continue from Google's consent page: {exc}") from exc
 
+    try:
+        _validate_input_url(page_url)
+    except RouteReadError as exc:
+        raise RouteReadError("The Google Maps link redirected to an unexpected destination.") from exc
+
     parser = DirectionsPreloadParser()
     parser.feed(page_text)
     if parser.href is None:
@@ -239,6 +368,13 @@ def fetch_google_route(url: str, *, timeout: int = 60) -> dict[str, Any]:
             "Open the link in Google Maps, confirm it is a driving route, share it again, and retry."
         )
     endpoint = urljoin("https://www.google.com/", parser.href)
+    endpoint_parsed = urlparse(endpoint)
+    if (
+        endpoint_parsed.scheme != "https"
+        or (endpoint_parsed.hostname or "").lower() not in ALLOWED_INPUT_HOSTS
+        or not endpoint_parsed.path.startswith("/maps/preview/directions")
+    ):
+        raise RouteReadError("Google exposed an unexpected directions endpoint.")
     try:
         response = opener.open(
             Request(

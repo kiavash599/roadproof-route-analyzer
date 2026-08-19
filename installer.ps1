@@ -5,9 +5,18 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VenvPython = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+$UseColor = -not (Test-Path Env:NO_COLOR)
+
+function Write-RoadProof([string]$Message, [ConsoleColor]$Color = [ConsoleColor]::White) {
+    if ($UseColor) {
+        Write-Host $Message -ForegroundColor $Color
+    } else {
+        Write-Host $Message
+    }
+}
 
 function Write-Step([string]$Message) {
-    Write-Host "`n==> $Message" -ForegroundColor Cyan
+    Write-RoadProof "`n==> $Message" Cyan
 }
 
 function Find-Python {
@@ -42,8 +51,8 @@ function Find-Python {
 }
 
 Set-Location $ProjectRoot
-Write-Host "RoadProof setup" -ForegroundColor Green
-Write-Host "Project: $ProjectRoot" -ForegroundColor DarkGray
+Write-RoadProof "RoadProof cross-platform setup" Green
+Write-RoadProof "Project: $ProjectRoot" DarkGray
 
 $python = Find-Python
 if (-not $python) {
@@ -66,7 +75,7 @@ if (-not $python) {
 $pythonCommand = $python.Command
 $pythonPrefix = @($python.Prefix)
 $version = & $pythonCommand @pythonPrefix -c "import platform; print(platform.python_version())"
-Write-Host "Python $version detected" -ForegroundColor Green
+Write-RoadProof "Python $version detected" Green
 
 Write-Step "Creating an isolated RoadProof environment"
 if (-not (Test-Path $VenvPython)) {
@@ -84,6 +93,6 @@ Write-Step "Running the built-in self-check"
 & $VenvPython -m roadproof --self-check
 if ($LASTEXITCODE -ne 0) { throw "RoadProof self-check failed." }
 
-Write-Host "`nRoadProof is ready." -ForegroundColor Green
-Write-Host "Run .\start.ps1 and paste a Google Maps route link." -ForegroundColor White
+Write-RoadProof "`nRoadProof is ready." Green
+Write-RoadProof "Run .\start.ps1 or start.bat and paste a Google Maps route link." White
 Get-ChildItem -Path $ProjectRoot -Filter "*.ps1" | Unblock-File -ErrorAction SilentlyContinue

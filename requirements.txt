@@ -1,1 +1,5 @@
-# RoadProof intentionally has no third-party Python dependencies.
+# Fully pinned for reproducible terminal rendering on Windows, macOS and Linux.
+rich==14.1.0
+markdown-it-py==4.2.0
+mdurl==0.1.2
+Pygments==2.21.0

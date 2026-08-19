@@ -12,20 +12,29 @@ param(
 $ErrorActionPreference = "Stop"
 $ProjectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $Python = Join-Path $ProjectRoot ".venv\Scripts\python.exe"
+$UseColor = -not (Test-Path Env:NO_COLOR)
+
+function Write-RoadProof([string]$Message, [ConsoleColor]$Color = [ConsoleColor]::White) {
+    if ($UseColor) {
+        Write-Host $Message -ForegroundColor $Color
+    } else {
+        Write-Host $Message
+    }
+}
 
 if (-not (Test-Path $Python)) {
-    Write-Host "RoadProof is not installed yet." -ForegroundColor Yellow
-    Write-Host "Run .\installer.ps1 once, then run .\start.ps1 again." -ForegroundColor White
+    Write-RoadProof "RoadProof is not installed yet." Yellow
+    Write-RoadProof "Run .\installer.ps1 once, then run .\start.ps1 again." White
     exit 2
 }
 
 if ([string]::IsNullOrWhiteSpace($MapsUrl)) {
-    Write-Host "RoadProof route analyzer" -ForegroundColor Cyan
+    Write-RoadProof "RoadProof route analyzer" Cyan
     $MapsUrl = Read-Host "Paste the Google Maps route link"
 }
 
 if ([string]::IsNullOrWhiteSpace($MapsUrl)) {
-    Write-Host "No link was entered." -ForegroundColor Red
+    Write-RoadProof "No link was entered." Red
     exit 2
 }
 

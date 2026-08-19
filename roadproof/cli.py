@@ -19,7 +19,10 @@ RESET = "\x1b[0m"
 
 
 def message(text: str, color: str = "36") -> None:
-    print(f"\x1b[{color}m{text}{RESET}")
+    if sys.stdout.isatty() and "NO_COLOR" not in os.environ:
+        print(f"\x1b[{color}m{text}{RESET}")
+    else:
+        print(text)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -80,7 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         rows = breakdown_for(route, evidence)
         created_at = datetime.now().astimezone()
         content = markdown_report(route, rows, evidence, args.profile, created_at)
-        output_path = save_report(args.output_dir, content, created_at, route["route_fingerprint"])
+        output_path = save_report(args.output_dir, content, created_at, route)
         render_console(route, rows, evidence, output_path, args.profile)
         return 0
     except RouteReadError as exc:
