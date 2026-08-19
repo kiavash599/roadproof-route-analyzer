@@ -33,7 +33,9 @@ bash ./installer.sh
 
 Paste either Google Maps link format when prompted. RoadProof shows the result
 in colored terminal tables and saves the detailed Markdown report under
-`reports/`.
+`reports/`. The first analysis of a Denmark corridor can take longer while
+RoadProof downloads and caches the relevant official data; later runs reuse
+the seven-day local cache.
 
 ## Overview
 
@@ -58,12 +60,15 @@ web evidence-intake interface. The terminal tool:
 - prints styled, adaptive Highway / Country / City / Unresolved tables on
   Windows, macOS and Linux;
 - writes the same detailed result to a meaningful, uniquely named Markdown report;
-- reuses a retained official-road analysis only when that evidence fingerprint matches.
+- analyzes previously unseen routes wholly inside Denmark at runtime against
+  official Danish road and zone data;
+- reuses a retained official-road analysis when an exact evidence fingerprint matches.
 
-The included Denmark evidence package covers the verified Copenhagen loop.
-Other links still receive a confirmed Google total, but their entire distance
-remains `Unresolved` until an official country-adapter evidence package matches.
-RoadProof never substitutes an invented classification.
+The Denmark runtime adapter covers routes wholly inside Denmark; it does not
+require a pre-extracted geometry package for every route. Routes outside
+Denmark still receive a confirmed Google total, but road-type distance remains
+`Unresolved` until that country has its own adapter. RoadProof never
+substitutes an invented classification.
 
 The web interface separately supports safe Google request resolution and local
 GPX, GeoJSON, and KML import. A maneuver-level evidence fingerprint does not
@@ -90,6 +95,31 @@ and country-adapter evidence contract.
 - Never promote an OSM-only result to `Confirmed`.
 - Never silently allocate unresolved kilometres.
 - Always show road-network evidence separately from compliance profiles.
+
+## Denmark runtime adapter
+
+For an all-Denmark route without a retained fingerprint match, RoadProof:
+
+1. requests only the official data intersecting the route corridors from the
+   public Vejdirektoratet Vejman WFS;
+2. builds a local graph and matches every Google maneuver independently;
+3. accepts endpoints only within 120 m and paths only when their length differs
+   from Google's maneuver distance by at most `max(100 m, 6%)`;
+4. assigns motorway and expressway from Vejman's signed `Motorvej` and
+   `Motortrafikvej` values, followed by documented built-up/non-urban fields;
+5. uses the official Plandata `Byzone`/`Landzone` polygons only as a fallback
+   where Vejman lacks decisive attributes; and
+6. leaves every failed or ambiguous maneuver `Unresolved` instead of spreading
+   its distance across the matched classes.
+
+Plandata's planning zones are official source data, but their translation to
+the EU `City`/`Country` buckets is an explicit RoadProof inference. The exact
+Google distance is likewise allocated in proportion to accepted official path
+segments. The report labels both facts as inferred.
+
+No API key is needed. Official WFS responses are cached for seven days under
+`%LOCALAPPDATA%\RoadProof\cache\denmark-wfs` on Windows and the standard XDG
+cache directory (normally `~/.cache/roadproof/denmark-wfs`) on macOS/Linux.
 
 ## Multi-purpose profiles
 
@@ -179,13 +209,18 @@ npm run build
 npm run validate:artifact
 ```
 
-## Official source
+## Official sources
 
 - [Commission Delegated Regulation (EU) 2021/1958](https://eur-lex.europa.eu/eli/reg_del/2021/1958/2023-09-21/eng), especially point 4.3.1.3.
+- [Vejdirektoratet guidance for using Vejman data in external programs](https://vejman.scrollhelp.site/hjaelpecenter/anvende-stedfstelse-i-egne-programmer).
+- [Vejman public WFS capabilities](https://geocloud.vd.dk/vejman-stamdata/wfs?service=WFS&request=GetCapabilities).
+- [Plandata public WFS capabilities](https://geoserver.plandata.dk/geoserver/wfs?service=WFS&request=GetCapabilities).
 
 ## Privacy and credentials
 
 The terminal tool requests no Google login, Google API key, private token, or
-user location. It sends the supplied public link to Google Maps and stores only
-the generated Markdown report locally. Future country adapters must use public
-official datasets or document any optional credential separately.
+device location. It sends the supplied public link to Google Maps, sends route
+corridor bounding boxes to the official Vejman and Plandata services for
+Denmark analysis, and stores the generated Markdown report plus a seven-day
+cache of those public official responses locally. Future country adapters must
+use public official datasets or document any optional credential separately.
