@@ -67,6 +67,21 @@ npm run dev
 Open the local URL printed by the development server. Use **Load verified
 Denmark example** to inspect the stored pilot report.
 
+## Desktop installers
+
+RoadProof includes an offline desktop shell for the existing GUI and automated
+installer builds:
+
+- Windows x64: one-click, per-user `.exe` installer with desktop and Start Menu
+  shortcuts;
+- macOS: universal Intel/Apple Silicon `.pkg`, `.dmg`, and `.zip` packages;
+- update metadata for in-app update checks against GitHub Releases.
+
+Run the **Desktop installers** workflow manually to create downloadable workflow
+artifacts. Pushing a version tag such as `v1.0.0` creates a GitHub Release and
+attaches all Windows and macOS packages. See
+[`desktop/README.md`](desktop/README.md) for signing and local validation.
+
 ## Validate
 
 ```bash
