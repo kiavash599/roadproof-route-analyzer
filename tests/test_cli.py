@@ -155,7 +155,7 @@ class RoadProofTests(unittest.TestCase):
         if os.name != "nt":
             self.assertTrue(os.access(root / "installer.sh", os.X_OK))
             self.assertTrue(os.access(root / "start.sh", os.X_OK))
-        if shutil.which("bash"):
+        if os.name != "nt" and shutil.which("bash"):
             for name in ("installer.sh", "start.sh"):
                 completed = subprocess.run(
                     ["bash", "-n", str(root / name)],
