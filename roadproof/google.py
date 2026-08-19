@@ -296,6 +296,13 @@ def parse_directions_response(body: bytes, *, input_url: str, resolved_url: str)
             leg_rows.append({"leg": index + 1, "distance_m": 0, "duration_s": 0})
 
     origin_name, destination_name = route_endpoints_from_url(resolved_url)
+    countries: list[str] = []
+    if len(route) > 11 and isinstance(route[11], list):
+        countries = [
+            str(value).upper()
+            for value in route[11]
+            if isinstance(value, str) and re.fullmatch(r"[A-Za-z]{2}", value)
+        ]
     return {
         "input_url": input_url,
         "resolved_url": resolved_url,
@@ -310,6 +317,7 @@ def parse_directions_response(body: bytes, *, input_url: str, resolved_url: str)
         "maneuvers": records,
         "response_sha256": response_sha256,
         "route_fingerprint": route_fingerprint(distance_m, records),
+        "countries": countries,
     }
 
 

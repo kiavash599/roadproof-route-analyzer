@@ -9,6 +9,12 @@ import subprocess
 import tempfile
 import unittest
 
+from roadproof.denmark import (
+    DenmarkAdapterError,
+    _haversine,
+    analyze_denmark_route,
+    classify_official_properties,
+)
 from roadproof.google import (
     RouteReadError,
     _validate_redirect_url,
@@ -33,7 +39,7 @@ def sample_response() -> bytes:
     leg_header = [None, None, [1000, "1 km", 0], [100, "2 min"]]
     destination = [None, None, [None, None, [None, None, 55.002, 12.002]]]
     leg = [leg_header, [[None, steps]], None, None, destination]
-    route = [[None, "Sample route", [1000, "1 km", 0], [100, "2 min"]], [leg]]
+    route = [[None, "Sample route", [1000, "1 km", 0], [100, "2 min"]], [leg], *([None] * 9), ["DK"]]
     return json.dumps([[None, [route]]]).encode("utf-8")
 
 
@@ -48,6 +54,138 @@ class RoadProofTests(unittest.TestCase):
         self.assertEqual(route["maneuver_sum_m"], 1000)
         self.assertEqual(route["maneuver_count"], 2)
         self.assertEqual(route["route_fingerprint"], route_fingerprint(1000, route["maneuvers"]))
+        self.assertEqual(route["countries"], ["DK"])
+
+    def test_denmark_official_fields_are_not_reduced_to_speed_alone(self):
+        self.assertEqual(
+            classify_official_properties({"VEJTYPESKILTET": "Motorvej"})[0],
+            "Highway",
+        )
+        self.assertEqual(
+            classify_official_properties({"HAST_GENEREL_HAST": "50 - Indenfor byzonetavler"})[0],
+            "City",
+        )
+        self.assertEqual(
+            classify_official_properties({"HAST_GENEREL_HAST": "80 - Udenfor byzonetavler"})[0],
+            "Country",
+        )
+        self.assertEqual(
+            classify_official_properties({"HAST_GAELDENDE_HAST": 130})[0],
+            "Unresolved",
+        )
+
+    def test_runtime_denmark_adapter_matches_new_route_without_saved_fingerprint(self):
+        first_start = (55.0, 12.0)
+        turn = (55.0, 12.01)
+        destination = (55.01, 12.01)
+        first_distance = round(_haversine(first_start, turn))
+        second_distance = round(_haversine(turn, destination))
+        route = {
+            "countries": ["DK"],
+            "distance_m": first_distance + second_distance,
+            "maneuver_count": 2,
+            "route_fingerprint": "not-a-retained-package",
+            "maneuvers": [
+                {
+                    "sequence": 0,
+                    "distance_m": first_distance,
+                    "start_lat": first_start[0],
+                    "start_lon": first_start[1],
+                    "end_lat": turn[0],
+                    "end_lon": turn[1],
+                },
+                {
+                    "sequence": 1,
+                    "distance_m": second_distance,
+                    "start_lat": turn[0],
+                    "start_lon": turn[1],
+                    "end_lat": destination[0],
+                    "end_lon": destination[1],
+                },
+            ],
+        }
+        official = {
+            "type": "FeatureCollection",
+            "timeStamp": "2026-08-19T12:00:00Z",
+            "features": [
+                {
+                    "id": "motorway-1",
+                    "type": "Feature",
+                    "properties": {"VEJTYPESKILTET": "Motorvej", "KODE_VEJTYPESKILTET": "1"},
+                    "geometry": {"type": "LineString", "coordinates": [[12.0, 55.0], [12.01, 55.0]]},
+                },
+                {
+                    "id": "city-1",
+                    "type": "Feature",
+                    "properties": {"VEJTYPESKILTET": "Øvrige veje", "KODE_VEJTYPESKILTET": "9"},
+                    "geometry": {"type": "LineString", "coordinates": [[12.01, 55.0], [12.01, 55.01]]},
+                },
+            ],
+        }
+        zones = {
+            "type": "FeatureCollection",
+            "timeStamp": "2026-08-19T12:00:00Z",
+            "features": [
+                {
+                    "id": "zone-1",
+                    "type": "Feature",
+                    "properties": {"zone": 1, "zonestatus": "Byzone"},
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[
+                            [12.005, 54.999],
+                            [12.015, 54.999],
+                            [12.015, 55.011],
+                            [12.005, 55.011],
+                            [12.005, 54.999],
+                        ]],
+                    },
+                }
+            ],
+        }
+        evidence = analyze_denmark_route(
+            route,
+            fetch_box=lambda _box, _cache: official,
+            fetch_zones=lambda _box, _cache: zones,
+        )
+        self.assertIsNotNone(evidence)
+        rows = {row["category"]: row for row in evidence["breakdown"]}
+        self.assertAlmostEqual(rows["Highway"]["distance_m"], first_distance, places=3)
+        self.assertAlmostEqual(rows["City"]["distance_m"], second_distance, places=3)
+        self.assertAlmostEqual(rows["Unresolved"]["distance_m"], 0, places=3)
+        self.assertTrue(evidence["runtime"])
+
+        def unavailable_zones(_box, _cache):
+            raise DenmarkAdapterError("temporary zone service failure")
+
+        vejman_only = analyze_denmark_route(
+            route,
+            fetch_box=lambda _box, _cache: official,
+            fetch_zones=unavailable_zones,
+        )
+        self.assertIsNotNone(vejman_only)
+        vejman_rows = {row["category"]: row for row in vejman_only["breakdown"]}
+        self.assertAlmostEqual(vejman_rows["Highway"]["distance_m"], first_distance, places=3)
+        self.assertAlmostEqual(vejman_rows["Unresolved"]["distance_m"], second_distance, places=3)
+        self.assertTrue(any("Plandata zone fallback was unavailable" in item for item in vejman_only["unresolved"]))
+
+    def test_denmark_adapter_does_not_claim_another_country(self):
+        route = {
+            "countries": ["SE"],
+            "maneuvers": [{
+                "start_lat": 55.6,
+                "start_lon": 12.5,
+                "end_lat": 55.7,
+                "end_lon": 12.6,
+            }],
+        }
+        self.assertIsNone(
+            analyze_denmark_route(
+                route,
+                fetch_box=lambda _box, _cache: self.fail("Vejman must not be queried"),
+                fetch_zones=lambda _box, _cache: self.fail("Plandata must not be queried"),
+            )
+        )
 
     def test_pasted_short_and_full_google_maps_urls_are_normalized(self):
         short = normalize_google_maps_url('  <https://maps.app.goo.gl/Example123>  ')

@@ -130,7 +130,7 @@ def _render_ansi_console(
     output_path: Path,
     profile: str,
 ) -> None:
-    evidence_text = "Matched verified official-road evidence package" if evidence else "No matching road-network evidence package"
+    evidence_text = str(evidence.get("summary") or "Matched verified official-road evidence package") if evidence else "No matching road-network evidence package"
     print("\n" + color("  ROADPROOF  ", "white", bold=True) + color(" Evidence-first route analysis", "blue", bold=True))
     print_table(
         "Route summary",
@@ -224,11 +224,10 @@ def _render_rich_console(
     summary.add_row("Exact distance", f"{route['distance_m'] / 1000:.3f} km")
     summary.add_row("Google duration", duration_text(route["duration_s"]))
     summary.add_row("Legs / maneuvers", f"{len(route['legs'])} / {route['maneuver_count']}")
-    evidence_text = (
-        Text("Matched verified official-road evidence package", style="bold green")
-        if evidence
-        else Text("No matching road-network evidence package", style="bold yellow")
-    )
+    evidence_text = Text(
+        str(evidence.get("summary") or "Matched verified official-road evidence package"),
+        style="bold green",
+    ) if evidence else Text("No matching road-network evidence package", style="bold yellow")
     summary.add_row("Evidence", evidence_text)
     summary.add_row("Profile", "EU ISA 2021/1958" if profile == "eu-isa" else "Composition only")
     summary.add_row("Fingerprint", route["route_fingerprint"][:16] + "...")
@@ -362,12 +361,24 @@ def markdown_report(
         )
     lines.append("")
     if matched:
-        lines.extend(
-            [
+        if evidence.get("runtime"):
+            evidence_paragraph = (
+                "RoadProof matched this route at runtime against official Danish road and zone data. "
+                "The exact-distance allocation below calibrates accepted official paths to Google's "
+                "maneuver distances. The named official attributes are matched on accepted segments; "
+                "mapping them to EU buckets and allocating distance remain inferred, while failed paths "
+                "remain unresolved."
+            )
+        else:
+            evidence_paragraph = (
                 "The route fingerprint matches a retained, verified Denmark evidence package. "
                 "The exact-distance allocation below is inferred by calibrating matched official-road "
                 "segments to Google's exact maneuver distances. Official attributes are confirmed on "
-                "the matched segments; the allocation itself remains inferred.",
+                "the matched segments; the allocation itself remains inferred."
+            )
+        lines.extend(
+            [
+                evidence_paragraph,
                 "",
             ]
         )
@@ -412,7 +423,7 @@ def markdown_report(
             f"- Google returned an exact route total of {total_m / 1000:.3f} km.",
             f"- {route['maneuver_count']} maneuver distances sum to the same total.",
             f"- Google response SHA-256: `{route['response_sha256']}`.",
-            f"- Geometry-independent route fingerprint: `{route['route_fingerprint']}`.",
+            f"- Maneuver-level route fingerprint: `{route['route_fingerprint']}`.",
             "",
             "### Inferred",
             "",

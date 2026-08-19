@@ -1,4 +1,4 @@
-# RoadProof classification policy v1.0
+# RoadProof classification policy v1.1
 
 ## Authoritative test buckets
 
@@ -56,5 +56,53 @@ Europe-wide GIS schema. Each adapter must therefore document:
 - geometry and map-matching tolerances;
 - known gaps and their `Unresolved` behavior.
 
-Denmark is the current pilot adapter. Support for another country is not
+Denmark is the current runtime adapter. Support for another country is not
 claimed until its adapter passes these requirements.
+
+## Denmark adapter v1
+
+The adapter retrieves current public features at runtime and records the
+response timestamp and adapter version in each report. It uses:
+
+- Vejdirektoratet Vejman WFS layer
+  `vejman-stamdata:hastighedsgraenser` for official road geometry and road,
+  sign and built-up-area attributes; and
+- Plandata WFS layer `pdk:theme_pdk_zonekort_samlet_v` as a zone fallback when
+  a Vejman road feature lacks a decisive attribute.
+
+Classification precedence is:
+
+1. Vejman `VEJTYPESKILTET` / `KODE_VEJTYPESKILTET` values for `Motorvej` or
+   `Motortrafikvej` become `Highway`.
+2. Vejman `HAST_GENEREL_HAST` / `KODE_HAST_GENEREL_HAST` values documenting
+   inside built-up-area signs become `City`; values documenting outside those
+   signs become `Country`. A numeric speed value by itself is never used.
+3. Vejman `VEJSTIKLASSE` values explicitly ending in `By` or `Land` become
+   `City` or `Country` when the preceding fields are absent.
+4. An otherwise unclassified road edge inside an official Plandata `Byzone`
+   becomes `City`; `Landzone` or `Sommerhusområde` becomes `Country`.
+5. Missing or conflicting evidence remains `Unresolved`.
+
+Step 4 is an operational RoadProof inference: planning-zone polygons are
+official, but the EU regulation does not declare them to be road-class labels.
+Reports therefore describe the official match and the EU-bucket mapping
+separately instead of calling the final distance directly confirmed.
+
+Each Google maneuver is matched to the official graph independently. Endpoint
+snaps must be no farther than 120 m, and accepted official path length must be
+within `max(100 m, 6%)` of the Google maneuver distance. Google distance is
+then allocated in proportion to the accepted official edge classes. A failed
+path is never redistributed.
+
+Known gaps include disconnected or generalized official geometry, ambiguous
+parallel roads, roads without decisive official attributes, and the absence of
+a direct dual-carriageway proof in the selected layer. These remain
+`Unresolved`. If the optional Plandata fallback is unavailable, decisive
+Vejman matches can still be reported and all other affected edges remain
+`Unresolved`.
+
+Official endpoints:
+
+- <https://geocloud.vd.dk/vejman-stamdata/wfs?service=WFS&request=GetCapabilities>
+- <https://vejman.scrollhelp.site/hjaelpecenter/anvende-stedfstelse-i-egne-programmer>
+- <https://geoserver.plandata.dk/geoserver/wfs?service=WFS&request=GetCapabilities>
