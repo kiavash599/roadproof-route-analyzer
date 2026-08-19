@@ -1,0 +1,68 @@
+name: Cross-platform CLI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  cli:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate PowerShell syntax
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          foreach ($path in @('installer.ps1', 'start.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Resolve-Path $path),
+              [ref]$tokens,
+              [ref]$errors
+            ) > $null
+            if ($errors.Count -gt 0) {
+              $errors | ForEach-Object { Write-Error $_.Message }
+              exit 1
+            }
+          }
+
+      - name: Install on Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\installer.ps1
+
+      - name: Validate shell syntax
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash -n installer.sh start.sh
+
+      - name: Install on macOS or Linux
+        if: runner.os != 'Windows'
+        shell: bash
+        run: bash ./installer.sh
+
+      - name: Run CLI tests on Windows
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\.venv\Scripts\python.exe -m unittest tests.test_cli -v
+
+      - name: Run CLI tests on macOS or Linux
+        if: runner.os != 'Windows'
+        shell: bash
+        run: ./.venv/bin/python -m unittest tests.test_cli -v

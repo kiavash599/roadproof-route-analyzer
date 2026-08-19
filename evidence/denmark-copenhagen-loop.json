@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "name": "Verified Denmark Copenhagen loop",
+  "analysis_date": "2026-08-19",
+  "country": "DK",
+  "adapter": "Danish Vejman official-road adapter",
+  "route_identity": {
+    "route_fingerprint": "89c4000fa6dab3ea9d3e732b9507121c42bb8f24efdc759c7874cc1757612e84",
+    "distance_m": 262290,
+    "maneuver_count": 45
+  },
+  "breakdown": [
+    {
+      "category": "Highway",
+      "official_layer": "Signed motorway (Motorvej)",
+      "distance_m": 160718.2004906698,
+      "status": "Inferred distance; official class confirmed"
+    },
+    {
+      "category": "Country",
+      "official_layer": "Other road outside built-up-area signs",
+      "distance_m": 84443.32743705431,
+      "status": "Inferred distance; official regime confirmed"
+    },
+    {
+      "category": "City",
+      "official_layer": "Other road inside built-up-area signs",
+      "distance_m": 8127.241207777981,
+      "status": "Inferred distance; official regime confirmed"
+    },
+    {
+      "category": "Unresolved",
+      "official_layer": "Short ramps and local connectors",
+      "distance_m": 9001.230864497882,
+      "status": "Unresolved"
+    }
+  ],
+  "inferred": [
+    "Exact Google section distances were allocated in proportion to the official matched-path classes.",
+    "Operational mapping: Highway = signed motorway; Country = non-motorway outside built-up-area signs; City = non-motorway inside built-up-area signs."
+  ],
+  "unresolved": [
+    "9.001 km of short ramps and local connectors did not pass conservative official-network distance and snap checks.",
+    "The legal source does not prescribe a universal GIS mapping for every country's road attributes."
+  ],
+  "method": "Long sections named by Google (E20, E47, 22, 14 and 21) were matched to the official numbered-road network. Official signed-road-type and general-speed-regime attributes were then joined to those paths. Short sections were accepted only when the official-network distance differed by no more than max(50 m, 5%) and both anchor snaps were no more than 100 m. All remaining distance stayed unresolved.",
+  "official_sources": [
+    "Vejman `hastighedsgraenser`: 44,218 features; snapshot timestamp 2026-08-18T22:33:29.813Z.",
+    "Vejman `rutenummereret-vejnet`: 1,161 features; snapshot timestamp 2026-08-18T22:35:45.236Z.",
+    "Danish road and path register regulation: https://www.retsinformation.dk/api/pdf/177057",
+    "Vejman WFS guidance: https://vejman.scrollhelp.site/hjaelpecenter/anvende-stedfstelse-i-egne-programmer"
+  ]
+}
+
