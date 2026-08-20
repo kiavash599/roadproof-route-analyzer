@@ -12,9 +12,10 @@ from html.parser import HTMLParser
 import json
 import math
 import re
+import time
 from typing import Any
-from urllib.parse import parse_qs, unquote_plus, urljoin, urlparse
 from http.cookiejar import CookieJar
+from urllib.parse import parse_qs, unquote_plus, urljoin, urlparse
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, Request, build_opener
 
@@ -57,10 +58,31 @@ ALLOWED_INPUT_HOSTS = {
     *GOOGLE_COUNTRY_DOMAINS,
 }
 URL_IN_TEXT_RE = re.compile(r"https://[^\s<>\"']+", re.IGNORECASE)
+TRANSIENT_HTTP_CODES = {408, 425, 429, 500, 502, 503, 504}
+GOOGLE_REQUEST_ATTEMPTS = 3
 
 
 class RouteReadError(RuntimeError):
     """Raised when the selected Google route cannot be read defensibly."""
+
+
+def _open_with_retry(opener, request: Request, *, timeout: int):  # type: ignore[no-untyped-def]
+    """Retry only transport and retryable HTTP failures with short backoff."""
+    for attempt in range(GOOGLE_REQUEST_ATTEMPTS):
+        try:
+            return opener.open(request, timeout=timeout)
+        except HTTPError as exc:
+            if exc.code not in TRANSIENT_HTTP_CODES:
+                raise
+            failure = exc
+        except (URLError, TimeoutError, OSError) as exc:
+            failure = exc
+        if attempt + 1 == GOOGLE_REQUEST_ATTEMPTS:
+            raise URLError(
+                f"Google request failed after {GOOGLE_REQUEST_ATTEMPTS} attempts: {failure}"
+            ) from failure
+        time.sleep(2**attempt)
+    raise AssertionError("Google request retry loop ended unexpectedly")
 
 
 def _validate_redirect_url(url: str) -> None:
@@ -328,9 +350,10 @@ def fetch_google_route(url: str, *, timeout: int = 60) -> dict[str, Any]:
         "User-Agent": USER_AGENT,
         "Accept-Language": "en-US,en;q=0.9",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Connection": "close",
     }
     try:
-        page_response = opener.open(Request(input_url, headers=headers), timeout=timeout)
+        page_response = _open_with_retry(opener, Request(input_url, headers=headers), timeout=timeout)
         page_url = page_response.geturl()
         page_text = page_response.read().decode("utf-8", errors="replace")
     except (HTTPError, URLError, TimeoutError, OSError) as exc:
@@ -354,7 +377,8 @@ def fetch_google_route(url: str, *, timeout: int = 60) -> dict[str, Any]:
         ):
             raise RouteReadError("Google's consent page returned an unexpected continuation target.")
         try:
-            page_response = opener.open(
+            page_response = _open_with_retry(
+                opener,
                 Request(continue_url, headers={**headers, "Cookie": consent_cookie}),
                 timeout=timeout,
             )
@@ -384,7 +408,8 @@ def fetch_google_route(url: str, *, timeout: int = 60) -> dict[str, Any]:
     ):
         raise RouteReadError("Google exposed an unexpected directions endpoint.")
     try:
-        response = opener.open(
+        response = _open_with_retry(
+            opener,
             Request(
                 endpoint,
                 headers={
@@ -392,6 +417,7 @@ def fetch_google_route(url: str, *, timeout: int = 60) -> dict[str, Any]:
                     "Referer": page_url,
                     "Accept": "*/*",
                     "Cookie": consent_cookie,
+                    "Connection": "close",
                 },
             ),
             timeout=timeout,

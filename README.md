@@ -244,6 +244,10 @@ Windows, `start.ps1` additionally expands the legacy PowerShell console buffer
 to 9,999 lines when the host permits it. The log remains available when Windows
 Terminal or another host manages scrollback itself.
 
+The Google resolver retries short-lived connection resets, timeouts, rate
+limits, and server failures with bounded backoff. Permanent URL and redirect
+validation failures are never retried.
+
 Round trips use `<origin>-loop`; when Google does not expose endpoint labels,
 the route name is used instead.
 Set the standard `NO_COLOR` environment variable when plain terminal output is

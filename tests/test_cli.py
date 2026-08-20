@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from http.client import RemoteDisconnected
 import json
 import os
 from pathlib import Path
@@ -9,7 +10,10 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+from urllib.error import HTTPError, URLError
+from urllib.request import Request
 
+from roadproof.adapters import analyze_supported_route, resolve_country_signal
 from roadproof.cli import _evidence_for_route, main
 from roadproof.denmark import (
     DenmarkAdapterError,
@@ -17,11 +21,11 @@ from roadproof.denmark import (
     analyze_denmark_route,
     classify_official_properties,
 )
-from roadproof.adapters import analyze_supported_route, resolve_country_signal
 from roadproof.belgium import analyze_belgium_route, classify_flanders_properties
 from roadproof.germany import analyze_germany_route, classify_basemap_properties
 from roadproof.google import (
     RouteReadError,
+    _open_with_retry,
     _validate_redirect_url,
     normalize_google_maps_url,
     parse_directions_response,
@@ -282,6 +286,76 @@ class RoadProofTests(unittest.TestCase):
         _validate_redirect_url("https://consent.google.com/m?continue=https%3A%2F%2Fwww.google.com")
         with self.assertRaises(RouteReadError):
             _validate_redirect_url("https://example.com/collect")
+
+    def test_google_transport_disconnect_is_retried(self):
+        sentinel = object()
+
+        class FlakyOpener:
+            def __init__(self):
+                self.calls = 0
+
+            def open(self, _request, *, timeout):
+                self.calls += 1
+                self.assert_timeout = timeout
+                if self.calls == 1:
+                    raise RemoteDisconnected("remote closed")
+                return sentinel
+
+        opener = FlakyOpener()
+        with patch("roadproof.google.time.sleep") as sleep:
+            response = _open_with_retry(
+                opener,
+                Request("https://maps.app.goo.gl/example"),
+                timeout=17,
+            )
+        self.assertIs(response, sentinel)
+        self.assertEqual(opener.calls, 2)
+        self.assertEqual(opener.assert_timeout, 17)
+        sleep.assert_called_once_with(1)
+
+    def test_permanent_google_http_error_is_not_retried(self):
+        class PermanentFailureOpener:
+            def __init__(self):
+                self.calls = 0
+
+            def open(self, request, *, timeout):
+                self.calls += 1
+                raise HTTPError(request.full_url, 404, "not found", {}, None)
+
+        opener = PermanentFailureOpener()
+        with (
+            patch("roadproof.google.time.sleep") as sleep,
+            self.assertRaises(HTTPError),
+        ):
+            _open_with_retry(
+                opener,
+                Request("https://maps.app.goo.gl/example"),
+                timeout=17,
+            )
+        self.assertEqual(opener.calls, 1)
+        sleep.assert_not_called()
+
+    def test_google_retry_exhaustion_reports_attempt_count(self):
+        class DisconnectedOpener:
+            def __init__(self):
+                self.calls = 0
+
+            def open(self, _request, *, timeout):
+                self.calls += 1
+                raise RemoteDisconnected("remote closed")
+
+        opener = DisconnectedOpener()
+        with (
+            patch("roadproof.google.time.sleep") as sleep,
+            self.assertRaisesRegex(URLError, "failed after 3 attempts"),
+        ):
+            _open_with_retry(
+                opener,
+                Request("https://maps.app.goo.gl/example"),
+                timeout=17,
+            )
+        self.assertEqual(opener.calls, 3)
+        self.assertEqual([call.args for call in sleep.call_args_list], [(1,), (2,)])
 
     def test_route_endpoints_are_read_from_path_or_api_query(self):
         self.assertEqual(
