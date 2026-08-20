@@ -3,8 +3,9 @@
 ## Quick start
 
 You need Git and an internet connection. The platform installer checks for
-Python 3.10 or newer, installs it when supported and missing, creates an
-isolated `.venv`, and installs RoadProof's pinned requirements.
+CPython 3.10 through 3.14, installs it when supported and missing,
+creates an isolated `.venv`, and installs RoadProof's pinned requirements from
+official binary wheels where a compiled runtime is required.
 
 ### Windows (PowerShell)
 
@@ -16,6 +17,10 @@ cd roadproof-route-analyzer
 powershell -ExecutionPolicy Bypass -File .\installer.ps1
 .\start.ps1
 ```
+
+Rerunning `installer.ps1` is safe and repairs an existing environment after a
+Python or dependency upgrade. In particular, it replaces experimental MinGW
+NumPy builds with the official wheel before running RoadProof's self-check.
 
 Paste either a short Google Maps share link or the full directions URL when
 prompted. Command Prompt and double-click users can run `start.bat` instead.

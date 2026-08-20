@@ -367,6 +367,23 @@ class RoadProofTests(unittest.TestCase):
                 )
                 self.assertEqual(completed.returncode, 0, completed.stderr)
 
+    def test_installers_require_official_numpy_binary_and_verify_runtime(self):
+        root = Path(__file__).resolve().parents[1]
+        requirements = (root / "requirements.txt").read_text(encoding="utf-8")
+        windows_installer = (root / "installer.ps1").read_text(encoding="utf-8")
+        unix_installer = (root / "installer.sh").read_text(encoding="utf-8")
+        windows_launcher = (root / "start.ps1").read_text(encoding="utf-8")
+        unix_launcher = (root / "start.sh").read_text(encoding="utf-8")
+        self.assertIn('numpy==2.2.6; python_version < "3.14"', requirements)
+        self.assertIn('numpy==2.3.5; python_version >= "3.14"', requirements)
+        for installer in (windows_installer, unix_installer):
+            self.assertIn("--only-binary=:all:", installer)
+            self.assertIn("mapbox_vector_tile", installer)
+            self.assertIn("Numpy built with MINGW-W64", installer)
+        for launcher in (windows_launcher, unix_launcher):
+            self.assertIn("importlib.metadata", launcher)
+            self.assertIn("incompatible NumPy environment", launcher)
+
 
 if __name__ == "__main__":
     unittest.main()

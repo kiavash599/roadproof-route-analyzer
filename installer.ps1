@@ -22,21 +22,26 @@ function Write-Step([string]$Message) {
 function Find-Python {
     $candidates = @()
     if (Get-Command py.exe -ErrorAction SilentlyContinue) {
+        foreach ($minor in 14, 13, 12, 11, 10) {
+            $candidates += ,@("py.exe", "-3.$minor")
+        }
         $candidates += ,@("py.exe", "-3")
     }
     if (Get-Command python.exe -ErrorAction SilentlyContinue) {
         $candidates += ,@("python.exe")
     }
-    $localPython = Join-Path $env:LOCALAPPDATA "Programs\Python\Python312\python.exe"
-    if (Test-Path $localPython) {
-        $candidates += ,@($localPython)
+    foreach ($minor in 314, 313, 312, 311, 310) {
+        $localPython = Join-Path $env:LOCALAPPDATA "Programs\Python\Python$minor\python.exe"
+        if (Test-Path $localPython) {
+            $candidates += ,@($localPython)
+        }
     }
 
     foreach ($candidate in $candidates) {
         try {
             $command = $candidate[0]
             $prefix = @($candidate | Select-Object -Skip 1)
-            & $command @prefix -c "import sys; assert sys.version_info >= (3, 10)" 2>$null
+            & $command @prefix -c "import platform, sys; assert (3, 10) <= sys.version_info[:2] < (3, 15); assert platform.python_implementation() == 'CPython'" 2>$null
             if ($LASTEXITCODE -eq 0) {
                 return [PSCustomObject]@{
                     Command = $command
@@ -57,7 +62,7 @@ Write-RoadProof "Project: $ProjectRoot" DarkGray
 $python = Find-Python
 if (-not $python) {
     if (-not (Get-Command winget.exe -ErrorAction SilentlyContinue)) {
-        throw "Python 3.10+ was not found and winget is unavailable. Install Python from https://www.python.org/downloads/windows/ and run installer.ps1 again."
+        throw "CPython 3.10-3.14 was not found and winget is unavailable. Install 64-bit Python from https://www.python.org/downloads/windows/ and run installer.ps1 again."
     }
 
     Write-Step "Installing Python 3.12 for the current Windows user"
@@ -85,9 +90,27 @@ if (-not (Test-Path $VenvPython)) {
     }
 }
 
+Write-Step "Updating Python installation tooling"
+& $VenvPython -m pip install --disable-pip-version-check --upgrade pip
+if ($LASTEXITCODE -ne 0) { throw "Could not update pip." }
+
+Write-Step "Installing the official NumPy binary"
+$numpyRequirement = & $VenvPython -c "import sys; print('numpy==2.3.5' if sys.version_info >= (3, 14) else 'numpy==2.2.6')"
+& $VenvPython -m pip install --disable-pip-version-check --upgrade --force-reinstall `
+    --only-binary=:all: $numpyRequirement
+if ($LASTEXITCODE -ne 0) {
+    throw "No official NumPy wheel is available for this Python installation. Install 64-bit CPython 3.12 or 3.14 from python.org, remove .venv, and rerun installer.ps1."
+}
+
 Write-Step "Installing RoadProof requirements"
-& $VenvPython -m pip install --disable-pip-version-check -r (Join-Path $ProjectRoot "requirements.txt")
+& $VenvPython -m pip install --disable-pip-version-check --upgrade -r (Join-Path $ProjectRoot "requirements.txt")
 if ($LASTEXITCODE -ne 0) { throw "Requirement installation failed." }
+
+Write-Step "Verifying compiled route-analysis dependencies"
+& $VenvPython -c "import warnings; warnings.filterwarnings('error', message=r'Numpy built with MINGW-W64.*'); import numpy, shapely, mapbox_vector_tile; print(f'NumPy {numpy.__version__}; Shapely {shapely.__version__}; vector-tile decoder ready')"
+if ($LASTEXITCODE -ne 0) {
+    throw "A compiled dependency could not start safely. Rerun installer.ps1; if this repeats, install 64-bit CPython 3.12 from python.org first."
+}
 
 Write-Step "Running the built-in self-check"
 & $VenvPython -m roadproof --self-check

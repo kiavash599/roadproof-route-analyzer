@@ -28,6 +28,15 @@ if (-not (Test-Path $Python)) {
     exit 2
 }
 
+# Read package metadata without importing NumPy: importing the incompatible
+# CPython 3.14 / NumPy 2.2 MinGW build can terminate the interpreter.
+& $Python -c "import importlib.metadata as m, sys; version=tuple(map(int, m.version('numpy').split('.')[:2])); raise SystemExit(0 if sys.version_info < (3, 14) or version >= (2, 3) else 1)"
+if ($LASTEXITCODE -ne 0) {
+    Write-RoadProof "RoadProof found an incompatible NumPy environment." Red
+    Write-RoadProof "Run .\installer.ps1 once to replace it with the official binary, then retry." White
+    exit 2
+}
+
 if ([string]::IsNullOrWhiteSpace($MapsUrl)) {
     Write-RoadProof "RoadProof route analyzer" Cyan
     $MapsUrl = Read-Host "Paste the Google Maps route link"
