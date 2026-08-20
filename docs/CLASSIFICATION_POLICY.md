@@ -1,4 +1,4 @@
-# RoadProof classification policy v1.1
+# RoadProof classification policy v1.2
 
 ## Authoritative test buckets
 
@@ -56,8 +56,11 @@ Europe-wide GIS schema. Each adapter must therefore document:
 - geometry and map-matching tolerances;
 - known gaps and their `Unresolved` behavior.
 
-Denmark is the current runtime adapter. Support for another country is not
-claimed until its adapter passes these requirements.
+Runtime adapters currently exist for Denmark, Germany, Sweden and Belgium.
+Support for another country is not claimed until its adapter passes these
+requirements. The sampled adapters additionally require Google distance to
+reconcile with the maneuver chord and unanimous official point classifications;
+otherwise the maneuver remains `Unresolved`.
 
 ## Denmark adapter v1
 
@@ -106,3 +109,46 @@ Official endpoints:
 - <https://geocloud.vd.dk/vejman-stamdata/wfs?service=WFS&request=GetCapabilities>
 - <https://vejman.scrollhelp.site/hjaelpecenter/anvende-stedfstelse-i-egne-programmer>
 - <https://geoserver.plandata.dk/geoserver/wfs?service=WFS&request=GetCapabilities>
+
+## Germany adapter v1
+
+The adapter reads nationwide GeoBasis-DE/BKG `basemap.de Web Vektor` tiles.
+It maps `Verkehrslinie.klasse=Bundesautobahn` and officially separated
+carriageways to `Highway`. Other motor-road samples use official
+`Siedlungsflaeche` proximity for the operational `City`/`Country` split. The
+zone mapping and sampled-chord allocation are inferred and are labelled as
+such. Mixed samples remain unresolved.
+
+Official endpoints:
+
+- <https://basemap.de/produkte-und-dienste/web-vektor/>
+- <https://sgx.geodatenzentrum.de/gdz_basemapde_vektor/tiles/v2/bm_web_de_3857/bm_web_de_3857.json>
+
+## Sweden adapter v1
+
+The adapter queries Trafikverket's public NVDB WMS. `Motorvag` and
+`Motortrafikled` become `Highway`; `Vagtrafiknat` with/without
+`TattbebyggtOmrade` becomes `City`/`Country`. A sampled maneuver is accepted
+only when every point returns the same class.
+
+Official endpoints:
+
+- <https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/las-om-vara-data/vagdata/>
+- <https://geo-netinfo.trafikverket.se/MapService/wms.axd/NetInfo_1_10?SERVICE=WMS&VERSION=1.3.0&REQUEST=GetCapabilities>
+
+## Belgium regional adapter v1
+
+The adapter uses three regional evidence contracts. Flanders maps
+Wegenregister motorway/separated-road morphology to `Highway` and the official
+derived built-up-road layer to `City`/`Country`. Brussels UrbIS street sections
+support `City`. Walloon PICC `NATUR_DESC=Autoroute` supports `Highway`; other
+Walloon roads remain unresolved until a suitable current public built-up-road
+regime is available. The adapter never fills those gaps with a nationwide
+estimate.
+
+Official endpoints:
+
+- <https://geo.api.vlaanderen.be/Wegenregister/wfs?service=WFS&request=GetCapabilities>
+- <https://opendata.apps.mow.vlaanderen.be/opendata-geoserver/awv/wfs?service=WFS&request=GetCapabilities>
+- <https://geoportail.wallonie.be/catalogue/d26f16df-5326-4cd7-b768-709e75a25507.html>
+- <https://data.mobility.brussels/geoserver/bm_urbis/ows?service=WFS&request=GetCapabilities>

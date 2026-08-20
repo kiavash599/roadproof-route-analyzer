@@ -15,6 +15,9 @@ from roadproof.denmark import (
     analyze_denmark_route,
     classify_official_properties,
 )
+from roadproof.adapters import analyze_supported_route
+from roadproof.belgium import analyze_belgium_route, classify_flanders_properties
+from roadproof.germany import analyze_germany_route, classify_basemap_properties
 from roadproof.google import (
     RouteReadError,
     _validate_redirect_url,
@@ -24,6 +27,8 @@ from roadproof.google import (
     route_fingerprint,
 )
 from roadproof.report import breakdown_for, load_evidence, markdown_report, report_filename, save_report
+from roadproof.sampled import PointEvidence
+from roadproof.sweden import analyze_sweden_route
 
 
 def sample_response() -> bytes:
@@ -186,6 +191,65 @@ class RoadProofTests(unittest.TestCase):
                 fetch_zones=lambda _box, _cache: self.fail("Plandata must not be queried"),
             )
         )
+
+    def test_new_country_adapters_require_unanimous_official_samples(self):
+        start = (52.5, 13.3)
+        end = (52.5, 13.31)
+        distance = round(_haversine(start, end))
+        base_route = {
+            "distance_m": distance,
+            "maneuver_count": 1,
+            "route_fingerprint": "synthetic-country-adapter",
+            "maneuvers": [{
+                "sequence": 0,
+                "distance_m": distance,
+                "start_lat": start[0],
+                "start_lon": start[1],
+                "end_lat": end[0],
+                "end_lon": end[1],
+            }],
+        }
+        cases = (
+            ("DE", analyze_germany_route, "City"),
+            ("SE", analyze_sweden_route, "Highway"),
+            ("BE", analyze_belgium_route, "Country"),
+        )
+        for country, analyzer, expected in cases:
+            with self.subTest(country=country):
+                evidence = analyzer(
+                    {**base_route, "countries": [country]},
+                    classifier=lambda _lat, _lon, category=expected: PointEvidence(category, "test official layer"),
+                )
+                self.assertIsNotNone(evidence)
+                rows = {row["category"]: row for row in evidence["breakdown"]}
+                self.assertAlmostEqual(rows[expected]["distance_m"], distance)
+                self.assertAlmostEqual(rows["Unresolved"]["distance_m"], 0)
+                self.assertEqual(evidence["country"], country)
+
+    def test_new_country_field_mappings_are_explicit(self):
+        self.assertEqual(
+            classify_basemap_properties({"klasse": "Bundesautobahn"}, in_settlement=False).category,
+            "Highway",
+        )
+        self.assertEqual(
+            classify_basemap_properties({"klasse": "Gemeindestraße"}, in_settlement=True).category,
+            "City",
+        )
+        self.assertEqual(
+            classify_flanders_properties({"morfologischeWegklasse": "autosnelweg"}, built_up=False).category,
+            "Highway",
+        )
+        self.assertEqual(
+            classify_flanders_properties(
+                {"morfologischeWegklasse": "weg bestaande uit één rijbaan"},
+                built_up=True,
+            ).category,
+            "City",
+        )
+
+    def test_registry_does_not_claim_unsupported_or_cross_border_routes(self):
+        self.assertIsNone(analyze_supported_route({"countries": ["FR"], "maneuvers": []}))
+        self.assertIsNone(analyze_supported_route({"countries": ["DE", "BE"], "maneuvers": []}))
 
     def test_pasted_short_and_full_google_maps_urls_are_normalized(self):
         short = normalize_google_maps_url('  <https://maps.app.goo.gl/Example123>  ')

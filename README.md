@@ -33,9 +33,9 @@ bash ./installer.sh
 
 Paste either Google Maps link format when prompted. RoadProof shows the result
 in colored terminal tables and saves the detailed Markdown report under
-`reports/`. The first analysis of a Denmark corridor can take longer while
-RoadProof downloads and caches the relevant official data; later runs reuse
-the seven-day local cache.
+`reports/`. The first analysis of a supported-country corridor can take longer
+while RoadProof downloads and caches the relevant official data; later runs
+reuse the seven-day local cache.
 
 ## Overview
 
@@ -60,14 +60,15 @@ web evidence-intake interface. The terminal tool:
 - prints styled, adaptive Highway / Country / City / Unresolved tables on
   Windows, macOS and Linux;
 - writes the same detailed result to a meaningful, uniquely named Markdown report;
-- analyzes previously unseen routes wholly inside Denmark at runtime against
-  official Danish road and zone data;
+- analyzes previously unseen routes wholly inside Denmark, Germany, Sweden or
+  Belgium at runtime against the corresponding official data adapter;
 - reuses a retained official-road analysis when an exact evidence fingerprint matches.
 
-The Denmark runtime adapter covers routes wholly inside Denmark; it does not
-require a pre-extracted geometry package for every route. Routes outside
-Denmark still receive a confirmed Google total, but road-type distance remains
-`Unresolved` until that country has its own adapter. RoadProof never
+Runtime adapters cover routes wholly inside Denmark (`DK`), Germany (`DE`),
+Sweden (`SE`) and Belgium (`BE`); they do not require a pre-extracted geometry
+package for every route. Cross-border and other-country routes still receive a
+confirmed Google total, but road-type distance remains `Unresolved` until the
+route can be split safely or its country has an adapter. RoadProof never
 substitutes an invented classification.
 
 The web interface separately supports safe Google request resolution and local
@@ -96,7 +97,13 @@ and country-adapter evidence contract.
 - Never silently allocate unresolved kilometres.
 - Always show road-network evidence separately from compliance profiles.
 
-## Denmark runtime adapter
+## Runtime country adapters
+
+Each adapter uses a seven-day local cache and records its adapter version,
+official endpoints, retrieval time, inferred mappings and unresolved reasons
+in the Markdown report.
+
+### Denmark
 
 For an all-Denmark route without a retained fingerprint match, RoadProof:
 
@@ -120,6 +127,42 @@ segments. The report labels both facts as inferred.
 No API key is needed. Official WFS responses are cached for seven days under
 `%LOCALAPPDATA%\RoadProof\cache\denmark-wfs` on Windows and the standard XDG
 cache directory (normally `~/.cache/roadproof/denmark-wfs`) on macOS/Linux.
+
+### Germany
+
+The Germany adapter samples only Google maneuvers whose straight chord
+reconciles with Google's distance and requires every official sample to agree.
+It reads the nationwide GeoBasis-DE/BKG `basemap.de Web Vektor` tiles:
+
+- `Verkehrslinie.klasse=Bundesautobahn` or `fahrbahn=Getrennt` becomes
+  `Highway`;
+- other public road lines in/near `Siedlungsflaeche` become `City`; and
+- other public road lines outside that layer become `Country`.
+
+The settlement-to-EU mapping and sampled-chord allocation are explicitly
+reported as inferred. Mixed or missing samples remain `Unresolved`.
+
+### Sweden
+
+The Sweden adapter uses the public Trafikverket NVDB map service layers
+`Vagtrafiknat`, `Motorvag`, `Motortrafikled` and `TattbebyggtOmrade`.
+Motorway/motor-traffic-road samples become `Highway`; motor-road samples
+inside/outside the official built-up layer become `City`/`Country`. Every
+sample on an accepted maneuver must agree.
+
+### Belgium
+
+Belgium is dispatched across official regional sources:
+
+- Flanders: Wegenregister road morphology plus derived built-up-area road
+  zones supports all three buckets;
+- Brussels: UrbIS ADM street sections support `City`; and
+- Wallonia: PICC `Autoroute` supports `Highway`. Other Walloon road classes
+  remain `Unresolved` because the adapter has not found a current public
+  built-up-road regime suitable for a defensible `City`/`Country` split.
+
+This regional limitation is shown in every affected report rather than hidden
+behind a country-wide estimate.
 
 ## Multi-purpose profiles
 
@@ -215,12 +258,18 @@ npm run validate:artifact
 - [Vejdirektoratet guidance for using Vejman data in external programs](https://vejman.scrollhelp.site/hjaelpecenter/anvende-stedfstelse-i-egne-programmer).
 - [Vejman public WFS capabilities](https://geocloud.vd.dk/vejman-stamdata/wfs?service=WFS&request=GetCapabilities).
 - [Plandata public WFS capabilities](https://geoserver.plandata.dk/geoserver/wfs?service=WFS&request=GetCapabilities).
+- [GeoBasis-DE/BKG basemap.de Web Vektor](https://basemap.de/produkte-und-dienste/web-vektor/).
+- [Trafikverket road-data description](https://bransch.trafikverket.se/tjanster/data-kartor-och-geodatatjanster/las-om-vara-data/vagdata/).
+- [Flemish Wegenregister public WFS](https://geo.api.vlaanderen.be/Wegenregister/wfs?service=WFS&request=GetCapabilities).
+- [Walloon regional-road catalog](https://geoportail.wallonie.be/catalogue/d26f16df-5326-4cd7-b768-709e75a25507.html).
+- [Brussels UrbIS data description](https://be.brussels/en/about-region/urbis-data).
 
 ## Privacy and credentials
 
 The terminal tool requests no Google login, Google API key, private token, or
-device location. It sends the supplied public link to Google Maps, sends route
-corridor bounding boxes to the official Vejman and Plandata services for
-Denmark analysis, and stores the generated Markdown report plus a seven-day
-cache of those public official responses locally. Future country adapters must
-use public official datasets or document any optional credential separately.
+device location. It sends the supplied public link to Google Maps and sends
+only route corridors or conservative sample coordinates to the selected
+country's public official services. The generated Markdown report and a
+seven-day cache of public official responses are stored locally. Future
+country adapters must use public official datasets or document any optional
+credential separately.

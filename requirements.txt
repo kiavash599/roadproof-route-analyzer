@@ -1,5 +1,10 @@
-# Fully pinned for reproducible terminal rendering on Windows, macOS and Linux.
+# Fully pinned for reproducible analysis and rendering on Windows, macOS and Linux.
 rich==14.1.0
 markdown-it-py==4.2.0
 mdurl==0.1.2
 Pygments==2.21.0
+mapbox-vector-tile==2.2.0
+protobuf==6.33.6
+pyclipper==1.4.0
+shapely==2.1.2
+numpy==2.2.6
