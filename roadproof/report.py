@@ -10,6 +10,8 @@ import shutil
 from typing import Any
 import unicodedata
 
+from .profiles import check_text, evaluate_profile
+
 try:
     from rich import box
     from rich.console import Console
@@ -151,6 +153,7 @@ def _render_ansi_console(
             ["Google duration", duration_text(route["duration_s"])],
             ["Legs / maneuvers", f"{len(route['legs'])} / {route['maneuver_count']}"],
             ["Country signal", _country_signal(route)],
+            ["Result status", str(route.get("result_status") or "not recorded")],
             ["Evidence", color(evidence_text, "green" if evidence else "yellow")],
             ["Profile", "EU ISA 2021/1958" if profile == "eu-isa" else "Composition only"],
         ],
@@ -177,23 +180,35 @@ def _render_ansi_console(
         composition_rows,
         {2, 3},
     )
+    if evidence and evidence.get("country_results"):
+        print_table(
+            "Cross-border country dispatch",
+            ["Country", "Track distance", "Status", "Adapter / error"],
+            [
+                [
+                    str(item["country"]),
+                    f"{float(item['track_distance_m']) / 1000:.3f} km",
+                    str(item["status"]),
+                    str(item.get("adapter") or item.get("error") or "Not recorded"),
+                ]
+                for item in evidence["country_results"]
+            ],
+            {1},
+        )
 
     if profile == "eu-isa":
-        target_rows = [[
-            "Overall distance",
-            f"{total / 1000:.3f} km",
-            "400.000 km",
-            color("Meets", "green") if total >= 400_000 else color(f"Short by {(400_000-total)/1000:.3f} km", "red"),
-        ]]
-        for category in ("Highway", "Country", "City"):
-            distance_m = next(float(row["distance_m"]) for row in rows if row["category"] == category)
+        evaluation = evaluate_profile(profile, total, rows)
+        labels = {"overall_distance": "Overall distance", "highway": "Highway", "country": "Country", "city": "City", "darkness": "Darkness"}
+        target_rows = []
+        for check in evaluation["checks"]:
+            state_color = "green" if check["state"] == "meets" else "red" if check["state"] == "fails" else "yellow"
+            measured = "Not measured" if check["measured_m"] is None else f"{check['measured_m'] / 1000:.3f} km"
             target_rows.append([
-                category,
-                f"{distance_m / 1000:.3f} km",
-                "100.000 km",
-                color("Meets", "green") if distance_m >= 100_000 else color(f"Short by {(100_000-distance_m)/1000:.3f} km", "red"),
+                labels[check["check"]],
+                measured,
+                f"{check['target_m'] / 1000:.3f} km" + (" / 15%" if check["check"] == "darkness" else ""),
+                color(check_text(check), state_color),
             ])
-        target_rows.append(["Darkness", "Not measured", "60.000 km / 15%", color("Unresolved", "yellow")])
         print_table("EU ISA profile check", ["Check", "Measured", "Target", "Result"], target_rows, {1, 2})
 
     print("\n" + color("Markdown report saved:", "green", bold=True) + f" {output_path}")
@@ -236,10 +251,16 @@ def _render_rich_console(
     summary.add_row("Google duration", duration_text(route["duration_s"]))
     summary.add_row("Legs / maneuvers", f"{len(route['legs'])} / {route['maneuver_count']}")
     summary.add_row("Country signal", _country_signal(route))
+    summary.add_row("Result status", str(route.get("result_status") or "not recorded"))
     evidence_text = Text(_evidence_text(route, evidence), style="bold green" if evidence else "bold yellow")
     summary.add_row("Evidence", evidence_text)
     summary.add_row("Profile", "EU ISA 2021/1958" if profile == "eu-isa" else "Composition only")
     summary.add_row("Fingerprint", route["route_fingerprint"][:16] + "...")
+    summary.add_row("Identity version", str(route.get("route_fingerprint_version") or "maneuver-v1"))
+    if route.get("exact_track"):
+        track = route["exact_track"]
+        summary.add_row("Exact track", f"{track['format']} · {track['point_count']} points · {track['distance_m'] / 1000:.3f} km")
+        summary.add_row("Track reconciliation", str(route["track_reconciliation"]["status"]))
     console.print(summary)
 
     composition = Table(title="Road-type composition", box=box.ROUNDED, header_style="bold cyan", show_lines=True)
@@ -265,6 +286,20 @@ def _render_rich_console(
             _rich_status(str(row["status"])),
         )
     console.print(composition)
+    if evidence and evidence.get("country_results"):
+        countries = Table(title="Cross-border country dispatch", box=box.ROUNDED, header_style="bold cyan", show_lines=True)
+        countries.add_column("Country", style="bold white")
+        countries.add_column("Track distance", justify="right", no_wrap=True)
+        countries.add_column("Status")
+        countries.add_column("Adapter / error", overflow="fold")
+        for item in evidence["country_results"]:
+            countries.add_row(
+                str(item["country"]),
+                f"{float(item['track_distance_m']) / 1000:.3f} km",
+                str(item["status"]),
+                str(item.get("adapter") or item.get("error") or "Not recorded"),
+            )
+        console.print(countries)
 
     if profile == "eu-isa":
         targets = Table(title="EU ISA profile check", box=box.ROUNDED, header_style="bold cyan", show_lines=True)
@@ -272,13 +307,12 @@ def _render_rich_console(
         targets.add_column("Measured", justify="right", no_wrap=True)
         targets.add_column("Target", justify="right", no_wrap=True)
         targets.add_column("Result", overflow="fold")
-        overall_result = "Meets" if total >= 400_000 else f"Short by {(400_000-total)/1000:.3f} km"
-        targets.add_row("Overall distance", f"{total / 1000:.3f} km", "400.000 km", _rich_status(overall_result))
-        for category in ("Highway", "Country", "City"):
-            distance_m = next(float(row["distance_m"]) for row in rows if row["category"] == category)
-            result = "Meets" if distance_m >= 100_000 else f"Short by {(100_000-distance_m)/1000:.3f} km"
-            targets.add_row(category, f"{distance_m / 1000:.3f} km", "100.000 km", _rich_status(result))
-        targets.add_row("Darkness", "Not measured", "60.000 km / 15%", _rich_status("Unresolved"))
+        evaluation = evaluate_profile(profile, total, rows)
+        labels = {"overall_distance": "Overall distance", "highway": "Highway", "country": "Country", "city": "City", "darkness": "Darkness"}
+        for check in evaluation["checks"]:
+            measured = "Not measured" if check["measured_m"] is None else f"{check['measured_m'] / 1000:.3f} km"
+            target = f"{check['target_m'] / 1000:.3f} km" + (" / 15%" if check["check"] == "darkness" else "")
+            targets.add_row(labels[check["check"]], measured, target, _rich_status(check_text(check)))
         console.print(targets)
 
     console.print(
@@ -359,13 +393,20 @@ def markdown_report(
         f"| Legs / maneuvers | {len(route['legs'])} / {route['maneuver_count']} |",
         f"| Maneuver-distance sum | {route['maneuver_sum_m'] / 1000:.3f} km |",
         f"| Country signal | {_markdown_cell(_country_signal(route))} |",
+        f"| Result status | {_markdown_cell(str(route.get('result_status') or 'not recorded'))} |",
         f"| Evidence status | {_markdown_cell(_evidence_text(route, evidence))} |",
-        "",
-        "### Leg summary",
-        "",
-        "| Leg | Distance | Google duration |",
-        "|---:|---:|---:|",
     ]
+    if route.get("exact_track"):
+        track = route["exact_track"]
+        reconciliation = route["track_reconciliation"]
+        lines.extend(
+            [
+                f"| Exact track | {_markdown_cell(track['format'])}; {track['point_count']} points; {track['distance_m'] / 1000:.3f} km |",
+                f"| Geometry hash | `{track['geometry_hash']}` |",
+                f"| Track reconciliation | `{reconciliation['status']}`; {_markdown_cell(reconciliation['note'])} |",
+            ]
+        )
+    lines.extend(["", "### Leg summary", "", "| Leg | Distance | Google duration |", "|---:|---:|---:|"])
     for leg in route["legs"]:
         lines.append(
             f"| {leg['leg']} | {leg['distance_m'] / 1000:.3f} km | {duration_text(leg['duration_s'])} |"
@@ -404,27 +445,39 @@ def markdown_report(
             ]
         )
     lines.extend([_markdown_table(rows, total_m), ""])
-
-    if profile == "eu-isa":
-        lines.extend(["## EU ISA 2021/1958 profile", ""])
-        overall_gap = max(0.0, 400_000 - total_m)
-        lines.append(
-            f"Overall distance: **{total_m / 1000:.3f} km**; "
-            + ("meets the 400 km target." if not overall_gap else f"short by **{overall_gap / 1000:.3f} km**.")
-        )
-        lines.extend(["", "| Category | Measured | 100 km target |", "|---|---:|---|"])
-        for category in ("Highway", "Country", "City"):
-            distance_m = next(float(row["distance_m"]) for row in rows if row["category"] == category)
-            result = "Meets" if distance_m >= 100_000 else f"Short by {(100_000-distance_m)/1000:.3f} km"
-            lines.append(f"| {category} | {distance_m / 1000:.3f} km | {result} |")
+    if evidence and evidence.get("country_results"):
         lines.extend(
             [
-                "| Darkness | Not measured | Unresolved (target: 60 km / 15%) |",
+                "### Cross-border country dispatch",
                 "",
-                "Darkness cannot be determined from route geometry. It depends on the actual driving time.",
-                "",
+                "| Country | Track distance | Status | Adapter / error |",
+                "|---|---:|---|---|",
             ]
         )
+        for item in evidence["country_results"]:
+            detail = item.get("adapter") or item.get("error") or "Not recorded"
+            lines.append(
+                f"| {_markdown_cell(str(item['country']))} | {float(item['track_distance_m']) / 1000:.3f} km | "
+                f"{_markdown_cell(str(item['status']))} | {_markdown_cell(str(detail))} |"
+            )
+        lines.append("")
+
+    if profile == "eu-isa":
+        evaluation = evaluate_profile(profile, total_m, rows)
+        lines.extend([
+            "## EU ISA 2021/1958 profile",
+            "",
+            f"Profile version: `{evaluation['version']}`; overall state: **{evaluation['state']}**.",
+            "",
+            "| Check | Measured | Target | Result |",
+            "|---|---:|---:|---|",
+        ])
+        labels = {"overall_distance": "Overall distance", "highway": "Highway", "country": "Country", "city": "City", "darkness": "Darkness"}
+        for check in evaluation["checks"]:
+            measured = "Not measured" if check["measured_m"] is None else f"{check['measured_m'] / 1000:.3f} km"
+            target = f"{check['target_m'] / 1000:.3f} km" + (" / 15%" if check["check"] == "darkness" else "")
+            lines.append(f"| {labels[check['check']]} | {measured} | {target} | {check_text(check)} |")
+        lines.extend(["", "Darkness cannot be determined from route geometry. It depends on the actual driving time.", ""])
 
     lines.extend(
         [
@@ -436,6 +489,7 @@ def markdown_report(
             f"- {route['maneuver_count']} maneuver distances sum to the same total.",
             f"- Google response SHA-256: `{route['response_sha256']}`.",
             f"- Maneuver-level route fingerprint: `{route['route_fingerprint']}`.",
+            f"- Fingerprint algorithm: `{route.get('route_fingerprint_version') or 'maneuver-v1'}`.",
             "",
             "### Inferred",
             "",
@@ -467,11 +521,20 @@ def markdown_report(
         lines.extend(["Official data snapshots:", ""])
         lines.extend(f"- {item}" for item in evidence.get("official_sources", []))
         lines.append("")
+    performance = route.get("performance") or (evidence.get("performance") if evidence else None)
+    if performance:
+        lines.extend(["## Performance", "", "| Metric | Value |", "|---|---:|"])
+        for name, value in sorted(performance.items()):
+            lines.append(f"| {_markdown_cell(str(name).replace('_', ' ').title())} | {_markdown_cell(str(value))} |")
+        lines.append("")
     lines.extend(
         [
             "## Reproducibility",
             "",
             f"- Route fingerprint: `{route['route_fingerprint']}`",
+            f"- Fingerprint algorithm: `{route.get('route_fingerprint_version') or 'maneuver-v1'}`",
+            f"- Exact geometry hash: `{route.get('geometry_hash') or 'not available'}`",
+            f"- Geometry hash algorithm: `{route.get('geometry_hash_version') or 'not available'}`",
             f"- Directions response hash: `{route['response_sha256']}`",
             f"- Profile: `{profile}`",
             "- The generated report and console table use the same computed data structure.",

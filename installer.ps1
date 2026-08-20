@@ -116,6 +116,12 @@ Write-Step "Running the built-in self-check"
 & $VenvPython -m roadproof --self-check
 if ($LASTEXITCODE -ne 0) { throw "RoadProof self-check failed." }
 
+Write-Step "Checking live public-service connectivity"
+& $VenvPython -m roadproof --self-check --network-check
+if ($LASTEXITCODE -ne 0) {
+    Write-RoadProof "One or more public services are temporarily unavailable; installation is complete, but live analysis may need to be retried later." Yellow
+}
+
 Write-RoadProof "`nRoadProof is ready." Green
 Write-RoadProof "Run .\start.ps1 or start.bat and paste a Google Maps route link." White
 Get-ChildItem -Path $ProjectRoot -Filter "*.ps1" | Unblock-File -ErrorAction SilentlyContinue

@@ -21,10 +21,9 @@ import os
 from pathlib import Path
 import time
 from typing import Any, Callable, Iterable
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 
+from .network import NetworkRequestError, fetch_bytes, read_json_cache, write_json_cache
 
 ADAPTER_VERSION = "dk-official-runtime-1"
 WFS_ENDPOINT = "https://geocloud.vd.dk/vejman-stamdata/wfs"
@@ -142,24 +141,12 @@ def _cache_path(params: dict[str, str], cache_dir: Path | None) -> Path:
 
 
 def _read_cache(path: Path) -> dict[str, Any] | None:
-    try:
-        if time.time() - path.stat().st_mtime > CACHE_MAX_AGE_S:
-            return None
-        value = json.loads(path.read_text(encoding="utf-8"))
-        return value if isinstance(value, dict) and isinstance(value.get("features"), list) else None
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return None
+    value = read_json_cache(path, max_age_s=CACHE_MAX_AGE_S)
+    return value if value is not None and isinstance(value.get("features"), list) else None
 
 
 def _write_cache(path: Path, value: dict[str, Any]) -> None:
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = path.with_suffix(f".{os.getpid()}.tmp")
-        temporary.write_text(json.dumps(value, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
-        temporary.replace(path)
-    except OSError:
-        # A read-only or locked cache must not prevent route analysis.
-        return
+    write_json_cache(path, value)
 
 
 def _request_json_page(
@@ -170,22 +157,23 @@ def _request_json_page(
     timeout: int = 90,
 ) -> dict[str, Any]:
     url = f"{endpoint}?{urlencode(params)}"
-    request = Request(url, headers={"User-Agent": "RoadProof/0.4 (+https://github.com/kiavash599/roadproof-route-analyzer)", "Accept": "application/json"})
-    last_error: Exception | None = None
-    for attempt in range(3):
-        try:
-            with urlopen(request, timeout=timeout) as response:
-                if response.geturl().split("?", 1)[0] != endpoint:
-                    raise DenmarkAdapterError(f"{service_name} redirected to an unexpected endpoint.")
-                payload = json.loads(response.read())
-            if not isinstance(payload, dict) or not isinstance(payload.get("features"), list):
-                raise DenmarkAdapterError(f"{service_name} returned an unrecognized response.")
-            return payload
-        except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError, DenmarkAdapterError) as exc:
-            last_error = exc
-            if attempt < 2:
-                time.sleep(1.5 * (attempt + 1))
-    raise DenmarkAdapterError(f"Could not read {service_name}: {last_error}")
+    try:
+        body = fetch_bytes(
+            url,
+            headers={
+                "User-Agent": "RoadProof/0.6 (+https://github.com/kiavash599/roadproof-route-analyzer)",
+                "Accept": "application/json",
+            },
+            timeout=timeout,
+            max_bytes=64 * 1024 * 1024,
+            validate_final_url=lambda final: final.split("?", 1)[0] == endpoint,
+        )
+        payload = json.loads(body)
+    except (NetworkRequestError, json.JSONDecodeError) as exc:
+        raise DenmarkAdapterError(f"Could not read {service_name}: {exc}") from exc
+    if not isinstance(payload, dict) or not isinstance(payload.get("features"), list):
+        raise DenmarkAdapterError(f"{service_name} returned an unrecognized response.")
+    return payload
 
 
 def _request_page(params: dict[str, str], *, timeout: int = 90) -> dict[str, Any]:
@@ -664,6 +652,7 @@ def analyze_denmark_route(
     fetch_zones: Callable[[Box, Path | None], dict[str, Any]] = _fetch_zone_box,
 ) -> dict[str, Any] | None:
     """Return a runtime official evidence package for an all-Denmark route."""
+    started = time.monotonic()
     countries = {str(value).upper() for value in route.get("countries", []) if value}
     if countries and countries != {"DK"}:
         return None
@@ -742,10 +731,14 @@ def analyze_denmark_route(
 
     route_total = float(route["distance_m"])
     allocated = sum(totals.values())
-    totals["Unresolved"] += route_total - allocated
-    if totals["Unresolved"] < 0 and abs(totals["Unresolved"]) < 0.05:
-        totals["Unresolved"] = 0.0
-    matched_distance = route_total - totals["Unresolved"]
+    if route_total < 0 or not math.isfinite(route_total):
+        raise DenmarkAdapterError("The Google route total was not a finite non-negative distance.")
+    if allocated > 0:
+        scale = route_total / allocated
+        totals = {category: max(0.0, distance * scale) for category, distance in totals.items()}
+    else:
+        totals["Unresolved"] = route_total
+    matched_distance = sum(totals[category] for category in ("Highway", "Country", "City"))
     if matched_distance <= 0:
         raise DenmarkAdapterError("No maneuver passed the official Denmark map-matching gates.")
 
@@ -787,6 +780,14 @@ def analyze_denmark_route(
         "breakdown": rows,
         "matched_maneuvers": matched_count,
         "matched_distance_m": matched_distance,
+        "performance": {
+            "analysis_seconds": round(time.monotonic() - started, 3),
+            "corridor_count": len(boxes),
+            "road_feature_count": len(features_by_id),
+            "zone_feature_count": len(zone_collection["features"]),
+            "graph_node_count": len(graph.coordinates),
+            "maneuver_count": len(route["maneuvers"]),
+        },
         "diagnostics": diagnostics,
         "inferred": [
             "Google maneuver distances were allocated in proportion to the accepted official Vejman path classes.",

@@ -6,11 +6,9 @@ import math
 import os
 from pathlib import Path
 import threading
-import time
 from typing import Any
-from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
 
+from .network import NetworkRequestError, fetch_bytes, read_bytes_cache, write_bytes_cache
 from .sampled import OfficialAdapterError, PointEvidence, analyze_sampled_route
 
 
@@ -43,36 +41,22 @@ def _tile_coordinates(lat: float, lon: float, zoom: int) -> tuple[int, int, floa
 
 def _download_tile(zoom: int, tile_x: int, tile_y: int, cache_dir: Path | None) -> bytes:
     path = (cache_dir or _cache_root()) / str(zoom) / str(tile_x) / f"{tile_y}.pbf"
-    try:
-        if time.time() - path.stat().st_mtime <= CACHE_MAX_AGE_S:
-            return path.read_bytes()
-    except OSError:
-        pass
+    cached = read_bytes_cache(path, max_age_s=CACHE_MAX_AGE_S)
+    if cached is not None:
+        return cached
 
     url = TILE_TEMPLATE.format(z=zoom, x=tile_x, y=tile_y)
-    request = Request(url, headers={"User-Agent": "RoadProof/0.5", "Accept": "application/x-protobuf"})
-    last_error: Exception | None = None
-    for attempt in range(3):
-        try:
-            with urlopen(request, timeout=60) as response:
-                if response.geturl() != url:
-                    raise OfficialAdapterError("The official basemap.de tile request redirected unexpectedly.")
-                body = response.read()
-            if not body:
-                raise OfficialAdapterError("The official basemap.de tile was empty.")
-            try:
-                path.parent.mkdir(parents=True, exist_ok=True)
-                temporary = path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-                temporary.write_bytes(body)
-                temporary.replace(path)
-            except OSError:
-                pass
-            return body
-        except (HTTPError, URLError, TimeoutError, OSError, OfficialAdapterError) as exc:
-            last_error = exc
-            if attempt < 2:
-                time.sleep(1.5 * (attempt + 1))
-    raise OfficialAdapterError(f"Could not read the official basemap.de vector tile: {last_error}")
+    try:
+        body = fetch_bytes(
+            url,
+            headers={"User-Agent": "RoadProof/0.6", "Accept": "application/x-protobuf"},
+            max_bytes=8 * 1024 * 1024,
+            validate_final_url=lambda final: final == url,
+        )
+    except NetworkRequestError as exc:
+        raise OfficialAdapterError(f"Could not read the official basemap.de vector tile: {exc}") from exc
+    write_bytes_cache(path, body)
+    return body
 
 
 def _segments(geometry: dict[str, Any]) -> list[tuple[list[float], list[float]]]:
@@ -178,38 +162,65 @@ class GermanyPointClassifier:
         self.cache_dir = cache_dir
         self._decoded: dict[tuple[int, int], dict[str, Any]] = {}
         self._lock = threading.Lock()
+        self._condition = threading.Condition(self._lock)
+        self._loading: set[tuple[int, int]] = set()
 
     def _tile(self, tile_x: int, tile_y: int) -> dict[str, Any]:
         key = (tile_x, tile_y)
-        with self._lock:
+        with self._condition:
+            while key in self._loading and key not in self._decoded:
+                self._condition.wait()
             cached = self._decoded.get(key)
-        if cached is not None:
-            return cached
+            if cached is not None:
+                return cached
+            self._loading.add(key)
         try:
-            import mapbox_vector_tile
-        except ImportError as exc:  # pragma: no cover - installer supplies it
-            raise OfficialAdapterError("mapbox-vector-tile is missing; rerun the platform installer.") from exc
-        try:
-            decoded = mapbox_vector_tile.decode(_download_tile(TILE_ZOOM, tile_x, tile_y, self.cache_dir))
-        except Exception as exc:
-            if isinstance(exc, OfficialAdapterError):
-                raise
-            raise OfficialAdapterError(f"Could not decode the official basemap.de vector tile: {exc}") from exc
-        with self._lock:
-            self._decoded[key] = decoded
-        return decoded
+            try:
+                import mapbox_vector_tile
+            except ImportError as exc:  # pragma: no cover - installer supplies it
+                raise OfficialAdapterError("mapbox-vector-tile is missing; rerun the platform installer.") from exc
+            try:
+                decoded = mapbox_vector_tile.decode(_download_tile(TILE_ZOOM, tile_x, tile_y, self.cache_dir))
+            except Exception as exc:
+                if isinstance(exc, OfficialAdapterError):
+                    raise
+                raise OfficialAdapterError(f"Could not decode the official basemap.de vector tile: {exc}") from exc
+            with self._condition:
+                self._decoded[key] = decoded
+            return decoded
+        finally:
+            with self._condition:
+                self._loading.discard(key)
+                self._condition.notify_all()
 
     def __call__(self, lat: float, lon: float) -> PointEvidence:
         tile_x, tile_y, fraction_x, fraction_y = _tile_coordinates(lat, lon, TILE_ZOOM)
-        tile = self._tile(tile_x, tile_y)
-        road_layer = tile.get("Verkehrslinie") or {}
-        extent = float(road_layer.get("extent") or 4096)
-        point = (fraction_x * extent, (1.0 - fraction_y) * extent)
-        metres_per_unit = math.cos(math.radians(lat)) * 2 * math.pi * 6_378_137 / (2**TILE_ZOOM * extent)
+        metres_per_tile = math.cos(math.radians(lat)) * 2 * math.pi * 6_378_137 / (2**TILE_ZOOM)
+        margin = max(ROAD_SNAP_MAX_M, 120.0) / metres_per_tile
+        x_offsets = [0]
+        y_offsets = [0]
+        if fraction_x <= margin:
+            x_offsets.append(-1)
+        if 1.0 - fraction_x <= margin:
+            x_offsets.append(1)
+        if fraction_y <= margin:
+            y_offsets.append(-1)
+        if 1.0 - fraction_y <= margin:
+            y_offsets.append(1)
+
+        tile_contexts: list[tuple[dict[str, Any], tuple[float, float], float]] = []
+        for offset_x in x_offsets:
+            for offset_y in y_offsets:
+                tile = self._tile(tile_x + offset_x, tile_y + offset_y)
+                road_layer = tile.get("Verkehrslinie") or {}
+                extent = float(road_layer.get("extent") or 4096)
+                point = ((fraction_x - offset_x) * extent, (1.0 - fraction_y + offset_y) * extent)
+                tile_contexts.append((tile, point, metres_per_tile / extent))
 
         settlement_distance = min(
             (
                 _point_polygon_distance(point, feature.get("geometry") or {}) * metres_per_unit
+                for tile, point, metres_per_unit in tile_contexts
                 for feature in (tile.get("Siedlungsflaeche") or {}).get("features", [])
             ),
             default=math.inf,
@@ -219,22 +230,23 @@ class GermanyPointClassifier:
         # context without turning distant rural roads into urban evidence.
         settlement = settlement_distance <= 120.0
         nearest: tuple[float, dict[str, Any]] | None = None
-        for feature in road_layer.get("features", []):
-            properties = feature.get("properties") or {}
-            road_class = str(properties.get("klasse") or "").casefold()
-            if "strasse" not in road_class and road_class not in {"bundesautobahn", "autobahn"}:
-                continue
-            if "nicht öffentliche" in road_class:
-                continue
-            distances = [
-                _point_segment_distance(point, first, second)
-                for first, second in _segments(feature.get("geometry") or {})
-            ]
-            if not distances:
-                continue
-            distance_m = min(distances) * metres_per_unit
-            if nearest is None or distance_m < nearest[0]:
-                nearest = (distance_m, properties)
+        for tile, point, metres_per_unit in tile_contexts:
+            for feature in (tile.get("Verkehrslinie") or {}).get("features", []):
+                properties = feature.get("properties") or {}
+                road_class = str(properties.get("klasse") or "").casefold()
+                if "strasse" not in road_class and road_class not in {"bundesautobahn", "autobahn"}:
+                    continue
+                if "nicht öffentliche" in road_class:
+                    continue
+                distances = [
+                    _point_segment_distance(point, first, second)
+                    for first, second in _segments(feature.get("geometry") or {})
+                ]
+                if not distances:
+                    continue
+                distance_m = min(distances) * metres_per_unit
+                if nearest is None or distance_m < nearest[0]:
+                    nearest = (distance_m, properties)
         if nearest is None or nearest[0] > ROAD_SNAP_MAX_M:
             return PointEvidence("Unresolved", "basemap.de Verkehrslinie", "no official motor-road line within 90 m")
         return classify_basemap_properties(nearest[1], in_settlement=settlement)

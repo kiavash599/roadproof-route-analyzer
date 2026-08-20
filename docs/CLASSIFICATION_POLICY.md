@@ -35,6 +35,52 @@ Primary source:
 9. Missing, conflicting, stale or weak evidence produces `Unresolved`.
    Unresolved distance is never redistributed.
 
+## Cross-border exact-track dispatch
+
+Cross-border runtime analysis requires a separately imported exact track whose
+length and endpoints reconcile with the Google maneuver evidence. Consistency
+does not establish Google-link/track equivalence. Each consecutive track edge
+is eligible for a country adapter only when every point sampled at no more than
+2 km intervals falls in exactly one supported-country polygon from Eurostat
+GISCO Countries 2024 (1:1M, EPSG:4326) among the countries reported by Google.
+Boundary ambiguities, country transitions, unsupported locations, and adapter
+failures stay `Unresolved`.
+
+GISCO country geometry is official statistical reference data, not a legal
+border determination. Broad envelopes are used only as polygon pre-filters.
+After country adapters run, every track-derived category
+and unresolved distance is scaled by one common factor to Google's authoritative
+route total. No unresolved edge is assigned to another category.
+
+## Single-country exact-track sampling
+
+For a supported single-country route, a separately imported exact track may
+replace maneuver-chord interpolation only after its length and endpoints
+reconcile with the Google evidence. Each consecutive track edge is sampled
+against the same country adapter and accepted only when all official samples
+return one decisive class. Track-derived buckets, including `Unresolved`, are
+scaled by one common factor to Google's authoritative route total. The result
+records `reconciled_imported_exact_track`, the geometry hash, and matched edge
+count. A conflicting track is ignored and the conservative maneuver-chord path
+remains in effect. Consistency never establishes Google-track equivalence.
+
+## Automatic per-maneuver geometry reconstruction
+
+If no exact track is supplied, the online CLI may request Project OSRM driving
+geometry through the ordered Google maneuver anchors. This is a sampling aid,
+not Google route evidence. A reconstructed maneuver replaces its straight chord
+only when its OSRM length reconciles independently with the corresponding
+Google maneuver distance within `max(200 m, 12%)`. Failure or disagreement is
+local: that maneuver falls back to the conservative chord path while other
+accepted maneuvers may still use reconstructed geometry. Reports identify this
+as `hybrid_osrm_reconstructed_maneuvers` and retain acceptance/rejection
+diagnostics. No geometry hash or exact-equivalence claim is created.
+
+Automatic reconstruction is best-effort, cached for seven days, disabled in
+offline mode, and can be explicitly disabled with `--no-auto-geometry`. The
+public OSRM request necessarily discloses the ordered maneuver coordinates to
+`router.project-osrm.org`.
+
 ## Evidence states
 
 - **Confirmed** — matched segment plus named official source, source URL,

@@ -8,12 +8,10 @@ import math
 import os
 from pathlib import Path
 import threading
-import time
 from typing import Any, Iterable
-from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 
+from .network import NetworkRequestError, fetch_bytes, read_json_cache, write_json_cache
 from .sampled import OfficialAdapterError, PointEvidence, analyze_sampled_route
 
 
@@ -122,40 +120,24 @@ class BelgiumPointClassifier:
         query = urlencode(params)
         cache_key = hashlib.sha256((endpoint + "?" + query).encode()).hexdigest()
         cache_path = self.cache_dir / f"{ADAPTER_VERSION}-{cache_key}.json"
-        try:
-            if time.time() - cache_path.stat().st_mtime <= CACHE_MAX_AGE_S:
-                value = json.loads(cache_path.read_text(encoding="utf-8"))
-                if isinstance(value, dict) and isinstance(value.get("features"), list):
-                    return value
-        except (OSError, json.JSONDecodeError):
-            pass
+        cached = read_json_cache(cache_path, max_age_s=CACHE_MAX_AGE_S)
+        if cached is not None and isinstance(cached.get("features"), list):
+            return cached
         url = f"{endpoint}?{query}"
-        request = Request(url, headers={"User-Agent": "RoadProof/0.5", "Accept": "application/json"})
-        last_error: Exception | None = None
-        for attempt in range(3):
-            try:
-                with urlopen(request, timeout=60) as response:
-                    if response.geturl().split("?", 1)[0] != endpoint:
-                        raise OfficialAdapterError(f"{service_name} redirected unexpectedly.")
-                    value = json.loads(response.read())
-                if not isinstance(value, dict) or not isinstance(value.get("features"), list):
-                    raise OfficialAdapterError(f"{service_name} returned an unrecognized response.")
-                try:
-                    cache_path.parent.mkdir(parents=True, exist_ok=True)
-                    temporary = cache_path.with_suffix(f".{os.getpid()}.{threading.get_ident()}.tmp")
-                    temporary.write_text(
-                        json.dumps(value, ensure_ascii=False, separators=(",", ":")),
-                        encoding="utf-8",
-                    )
-                    temporary.replace(cache_path)
-                except OSError:
-                    pass
-                return value
-            except (HTTPError, URLError, TimeoutError, OSError, json.JSONDecodeError, OfficialAdapterError) as exc:
-                last_error = exc
-                if attempt < 2:
-                    time.sleep(1.5 * (attempt + 1))
-        raise OfficialAdapterError(f"Could not read {service_name}: {last_error}")
+        try:
+            body = fetch_bytes(
+                url,
+                headers={"User-Agent": "RoadProof/0.6", "Accept": "application/json"},
+                max_bytes=32 * 1024 * 1024,
+                validate_final_url=lambda final: final.split("?", 1)[0] == endpoint,
+            )
+            value = json.loads(body)
+        except (NetworkRequestError, json.JSONDecodeError) as exc:
+            raise OfficialAdapterError(f"Could not read {service_name}: {exc}") from exc
+        if not isinstance(value, dict) or not isinstance(value.get("features"), list):
+            raise OfficialAdapterError(f"{service_name} returned an unrecognized response.")
+        write_json_cache(cache_path, value)
+        return value
 
     @staticmethod
     def _bbox(lat: float, lon: float, radius_m: float = 180.0) -> tuple[float, float, float, float]:

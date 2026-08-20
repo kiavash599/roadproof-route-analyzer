@@ -1,19 +1,16 @@
 "use client";
 
-import { ChangeEvent, DragEvent, FormEvent, useState } from "react";
-import type { RouteRequestEvidence } from "../lib/route-intelligence.ts";
-import { importTrackFile, type ImportedTrack } from "../lib/track-geometry.ts";
+import { FormEvent, useState } from "react";
 
 const SAMPLE_URL = "https://maps.app.goo.gl/HnrF4ACcqeiERj82A";
-type ViewState = "empty" | "sample" | "resolving" | "intake" | "invalid";
+type ViewState = "empty" | "sample" | "resolving" | "result" | "invalid";
 type AnalysisProfile = "composition" | "eu-isa";
-type RouteResolution = {
-  route: RouteRequestEvidence;
-  evidence: {
-    routeRequest: "confirmed";
-    exactSelectedGeometry: "unresolved";
-    roadClassification: "unresolved";
-  };
+type AnalysisDocument = {
+  schema: string;
+  status: string;
+  route: { name: string; origin?: string; destination?: string; distance_m: number; duration_s: number; maneuver_count: number; countries: string[]; route_fingerprint: string; automatic_geometry?: { status?: string; accepted?: number; rejected?: unknown[] } };
+  evidence: { available: boolean; message?: string; adapter?: string; matched_maneuvers?: number; breakdown: Array<{ category: string; distance_m: number; share: number; official_layer: string; status: string }> };
+  profile: { status: string; checks: Array<{ check: string; state: string; measured_m: number | null; target_m: number }> };
 };
 
 const routeSegments = [
@@ -53,44 +50,32 @@ export default function AnalyzerClient() {
   const [url, setUrl] = useState("");
   const [view, setView] = useState<ViewState>("empty");
   const [profile, setProfile] = useState<AnalysisProfile>("composition");
-  const [resolution, setResolution] = useState<RouteResolution | null>(null);
-  const [track, setTrack] = useState<ImportedTrack | null>(null);
+  const [result, setResult] = useState<AnalysisDocument | null>(null);
   const [error, setError] = useState("");
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!isGoogleMapsUrl(url)) { setError("Enter a supported Google Maps route URL."); setView("invalid"); return; }
-    setView("resolving"); setError(""); setResolution(null); setTrack(null);
+    setView("resolving"); setError(""); setResult(null);
     try {
-      const response = await fetch("/api/resolve-route", {
+      const response = await fetch("http://127.0.0.1:8765/api/analyze", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ url: url.trim() }),
+        body: JSON.stringify({ url: url.trim(), profile }),
       });
-      const data = await response.json() as RouteResolution & { error?: string };
-      if (!response.ok || !data.route) throw new Error(data.error || "The route link could not be resolved.");
-      setResolution(data); setView("intake");
+      const data = await response.json() as AnalysisDocument & { error?: string };
+      if (!response.ok || data.schema !== "roadproof.result.v1") throw new Error(data.error || "The route could not be analyzed.");
+      setResult(data); setView("result");
       window.setTimeout(() => document.getElementById("result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "The route link could not be resolved.");
+      setError(caught instanceof Error ? caught.message : "The route could not be analyzed.");
       setView("invalid");
     }
   }
 
   function loadSample() {
-    setUrl(SAMPLE_URL); setResolution(null); setTrack(null); setError(""); setView("sample");
+    setUrl(SAMPLE_URL); setResult(null); setError(""); setView("sample");
     window.setTimeout(() => document.getElementById("result")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
-  }
-
-  async function receiveTrack(file: File) {
-    setError("");
-    try {
-      if (file.size > 5_000_000) throw new Error("Track files are limited to 5 MB.");
-      setTrack(await importTrackFile(file.name, await file.text()));
-    } catch (caught) {
-      setTrack(null);
-      setError(caught instanceof Error ? caught.message : "The track file could not be read.");
-    }
   }
 
   return <main>
@@ -105,7 +90,7 @@ export default function AnalyzerClient() {
       <div className="hero-inner">
         <div className="eyebrow"><Icon name="shield" size={15} /> Multi-purpose route intelligence</div>
         <h1>Know the road mix.<br /><span>Prove every kilometre.</span></h1>
-        <p className="hero-copy">Paste a Google Maps route link to resolve its ordered route request without rerouting. Import the selected track separately so geometry, evidence and road-type claims remain independently verifiable.</p>
+        <p className="hero-copy">Paste a Google Maps route link. RoadProof reconstructs road-following geometry, checks it against Google maneuver distances, and classifies the route with official country data.</p>
         <form className="route-form" onSubmit={submit}>
           <label htmlFor="route-url">Google Maps route link</label>
           <div className="profile-row" role="group" aria-label="Analysis profile">
@@ -116,16 +101,16 @@ export default function AnalyzerClient() {
           <div className={`input-shell ${view === "invalid" ? "input-error" : ""}`}>
             <span className="input-icon"><Icon name="link" /></span>
             <input id="route-url" value={url} onChange={(event) => { setUrl(event.target.value); if (view === "invalid") { setView("empty"); setError(""); } }} placeholder="https://maps.app.goo.gl/…" spellCheck={false} />
-            <button type="submit" disabled={view === "resolving"}>{view === "resolving" ? "Resolving…" : "Inspect route"} <Icon name="arrow" size={17} /></button>
+            <button type="submit" disabled={view === "resolving"}>{view === "resolving" ? "Analyzing route…" : "Analyze route"} <Icon name="arrow" size={17} /></button>
           </div>
           <div className="form-meta"><span className={view === "invalid" ? "error-copy" : ""}>{view === "invalid" ? error : "No Google account, API key or private token required."}</span><button type="button" className="text-button" onClick={loadSample}>Load stored Denmark pilot</button></div>
         </form>
-        <div className="trust-row"><span><Icon name="check" size={15} /> Request ≠ geometry</span><span><Icon name="check" size={15} /> Official data first</span><span><Icon name="check" size={15} /> Ambiguity stays visible</span></div>
+        <div className="trust-row"><span><Icon name="check" size={15} /> No track upload required</span><span><Icon name="check" size={15} /> Official data first</span><span><Icon name="check" size={15} /> Ambiguity stays visible</span></div>
       </div>
     </section>
 
     {view === "sample" && <SampleResult profile={profile} />}
-    {view === "intake" && resolution && <IntakeResult resolution={resolution} track={track} error={error} onFile={receiveTrack} />}
+    {view === "result" && result && <LiveResult result={result} profile={profile} />}
 
     <section className="section policy-section" id="policy">
       <div className="section-heading"><div><span className="section-kicker">01 / classification policy</span><h2>One European rule.<br />Country-specific proof.</h2></div><p>The legal buckets come from Commission Delegated Regulation (EU) 2021/1958. The regulation names the three required road types but does not provide one universal GIS tag recipe, so each country must supply its own auditable adapter.</p></div>
@@ -143,7 +128,7 @@ export default function AnalyzerClient() {
     </section>
 
     <section className="section coverage-section" id="coverage">
-      <div className="coverage-copy"><span className="section-kicker">03 / Europe coverage</span><h2>Built for borders,<br />not one country.</h2><p>RoadProof is designed to split an imported cross-border track at national boundaries, run the correct official-data adapter for each country, then recombine distances without changing the supplied geometry.</p><div className="coverage-list"><span><Icon name="globe" size={17} /> Country-neutral canonical road model</span><span><Icon name="route" size={17} /> Multi-country routes split by evidence</span><span><Icon name="shield" size={17} /> Unsupported countries return Unresolved</span></div></div>
+      <div className="coverage-copy"><span className="section-kicker">03 / Europe coverage</span><h2>Built for borders,<br />not one country.</h2><p>RoadProof can dispatch reconciled exact-track edges to country-specific adapters when each edge has one unambiguous supported-country guard. Border overlaps, transitions and unsupported countries remain explicitly unresolved.</p><div className="coverage-list"><span><Icon name="globe" size={17} /> Country-neutral canonical road model</span><span><Icon name="route" size={17} /> Conservative exact-track country dispatch</span><span><Icon name="shield" size={17} /> Ambiguous edges return Unresolved</span></div></div>
       <EuropeCard />
     </section>
 
@@ -161,66 +146,34 @@ function Threshold({ label, value, percent, pass, unresolved = false }: { label:
   return <div className="threshold-row"><div><span>{label}</span><strong>{value}</strong></div><div className="threshold-track"><i className={pass ? "pass" : unresolved ? "pending" : "fail"} style={{ width: `${Math.min(percent, 100)}%` }} /></div><em className={pass ? "pass-copy" : unresolved ? "pending-copy" : "fail-copy"}>{pass ? "PASS" : unresolved ? "UNRESOLVED" : "SHORT"}</em></div>;
 }
 
-function IntakeResult({ resolution, track, error, onFile }: { resolution: RouteResolution; track: ImportedTrack | null; error: string; onFile: (file: File) => Promise<void> }) {
-  const { route } = resolution;
-  const stops = [route.origin, ...route.waypoints, route.destination];
-
-  function chooseFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (file) void onFile(file);
-    event.target.value = "";
-  }
-
-  function dropFile(event: DragEvent<HTMLLabelElement>) {
-    event.preventDefault();
-    const file = event.dataTransfer.files?.[0];
-    if (file) void onFile(file);
-  }
-
-  return <section className="section route-evidence" id="result">
-    <div className="evidence-head">
-      <div><span className="result-state"><Icon name="check" size={14} /> Route request confirmed</span><h2>Google route request resolved.</h2><p>The origin, ordered stops, destination and travel mode below come from Google&apos;s resolved directions URL. They do not prove the exact selected road geometry.</p></div>
-      <div className="fingerprint"><span>Request fingerprint</span><code title={route.requestFingerprint}>{route.requestFingerprint.slice(0, 16)}…</code><em>SHA-256 · v1</em></div>
+function LiveResult({ result, profile }: { result: AnalysisDocument; profile: AnalysisProfile }) {
+  const total = result.route.distance_m;
+  const rows = result.evidence.breakdown;
+  const geometry = result.route.automatic_geometry;
+  const rejected = geometry?.rejected?.length ?? 0;
+  const labels: Record<string, string> = { Highway: "Highway", Country: "Country", City: "City", Unresolved: "Unresolved" };
+  const tones: Record<string, string> = { Highway: "highway", Country: "country", City: "city", Unresolved: "unknown" };
+  return <section className="section result-section" id="result">
+    <div className="result-topbar">
+      <div><span className="result-state"><Icon name="check" size={14} /> Live analysis complete</span><h2>{result.route.name}</h2><p>{result.route.origin} → {result.route.destination} · {result.route.countries.join(", ") || "Country unresolved"}</p></div>
+      <div className="result-total"><span>Google route total</span><strong>{(total / 1000).toFixed(3)} <small>km</small></strong><em>{result.status === "complete" ? "Complete evidence coverage" : "Unresolved distance remains visible"}</em></div>
     </div>
-
-    {route.matchesStoredPilotRequest && <div className="same-request-note"><Icon name="alert" size={18} /><div><strong>Same ordered request as the stored Denmark pilot</strong><span>The opaque selection ID differs or may differ, and no matching geometry hash exists. The stored kilometre shares have therefore not been reused.</span></div></div>}
-
-    <div className="evidence-workspace">
-      <div className="stop-panel">
-        <div className="panel-title"><span>Ordered route request</span><span className="subtle">Mode: {route.travelMode}</span></div>
-        <ol className="stop-list">{stops.map((stop, index) => <li key={`${stop.normalized}-${index}`}><i>{index + 1}</i><div><strong>{index === 0 ? "Origin" : index === stops.length - 1 ? "Destination" : `Waypoint ${index}`}</strong><span>{stop.raw}</span></div><em>{stop.kind}</em></li>)}</ol>
-        <div className="selection-meta"><span>Google selection ID</span><code>{route.opaqueSelectionId || "Not exposed"}</code></div>
+    <div className="result-body">
+      <div className="chart-panel">
+        <div className="panel-title"><span>Road-type composition</span><span className="subtle">{result.evidence.adapter || "No supported adapter"}</span></div>
+        <div className="route-bar" aria-label="Road type distribution">{rows.map((row) => <span key={row.category} className={tones[row.category] || "unknown"} style={{ width: `${total ? 100 * row.distance_m / total : 0}%` }} title={`${row.category}: ${(row.distance_m / 1000).toFixed(3)} km`} />)}</div>
+        <div className="segment-list">{rows.map((row) => <div className="segment-row" key={row.category}><span className={`legend-dot ${tones[row.category] || "unknown"}`} /><span>{labels[row.category] || row.category}</span><strong>{(row.distance_m / 1000).toFixed(3)} km</strong><em>{(total ? 100 * row.distance_m / total : 0).toFixed(2)}%</em></div>)}</div>
+        <div className="sample-warning"><Icon name="route" size={17} /><p>Automatic road geometry accepted {geometry?.accepted ?? 0} Google maneuver(s); {rejected} remained on conservative fallback geometry. No GPX upload was required.</p></div>
       </div>
-
-      <div className="geometry-panel">
-        <div className="panel-title"><span>Exact-track evidence</span><span className="subtle">Local processing</span></div>
-        {!track ? <>
-          <label className="track-drop" onDragOver={(event) => event.preventDefault()} onDrop={dropFile}>
-            <input type="file" accept=".gpx,.geojson,.json,.kml,application/gpx+xml,application/geo+json,application/vnd.google-earth.kml+xml" onChange={chooseFile} />
-            <span className="drop-icon"><Icon name="route" size={22} /></span>
-            <strong>Import the selected track</strong>
-            <span>Drop or browse a GPX, GeoJSON or KML file</span>
-            <em>Maximum 5 MB · processed on this device</em>
-          </label>
-          {error && <p className="track-error">{error}</p>}
-          <div className="geometry-explain"><strong>Why a second file?</strong><p>A Google share link exposes the route request, but it is not an official exact-polyline export. Recalculating from the same stops could choose different roads, so RoadProof will not call that exact.</p></div>
-        </> : <>
-          <div className="track-confirmed"><span><Icon name="check" size={18} /></span><div><strong>Track geometry imported</strong><p>{track.format} · {track.points.length.toLocaleString()} ordered points</p></div></div>
-          <dl className="track-facts"><div><dt>Geodesic track length</dt><dd>{track.distanceKm.toFixed(3)} km</dd></div><div><dt>Geometry hash</dt><dd><code title={track.geometryHash}>{track.geometryHash.slice(0, 20)}…</code></dd></div></dl>
-          <label className="replace-track"><input type="file" accept=".gpx,.geojson,.json,.kml" onChange={chooseFile} />Replace track file</label>
-          <div className="geometry-explain unresolved-box"><strong>Still unresolved</strong><p>The imported file proves a stable geometry identity. Equivalence to the Google-selected route and road-type kilometres still require provenance plus country-specific map matching and official road attributes.</p></div>
-        </>}
+      <div className="threshold-panel">
+        <div className="panel-title"><span>{profile === "eu-isa" ? "EU ISA 2021/1958 profile" : "Evidence coverage"}</span><span className="subtle">{result.evidence.message || result.status}</span></div>
+        {profile === "eu-isa" ? result.profile.checks.map((check) => <Threshold key={check.check} label={check.check.replaceAll("_", " ")} value={check.measured_m === null ? "Not measured" : `${(check.measured_m / 1000).toFixed(3)} / ${(check.target_m / 1000).toFixed(3)} km`} percent={check.measured_m === null || check.target_m === 0 ? 0 : 100 * check.measured_m / check.target_m} pass={check.state === "meets"} unresolved={check.state !== "meets" && check.state !== "fails"} />) : rows.map((row) => <Threshold key={row.category} label={row.category} value={`${(row.distance_m / 1000).toFixed(3)} km`} percent={total ? 100 * row.distance_m / total : 0} pass={row.category !== "Unresolved" && row.distance_m > 0} unresolved={row.category === "Unresolved"} />)}
+        <div className={result.status === "complete" ? "overall-neutral" : "overall-fail"}><Icon name={result.status === "complete" ? "shield" : "alert"} size={17} /><div><strong>{result.status === "complete" ? "Classification complete" : "Partial evidence result"}</strong><span>Uncertain kilometres are never silently reassigned.</span></div></div>
       </div>
-    </div>
-
-    <div className="evidence-status-grid">
-      <div className="status-line confirmed-line"><span>Confirmed</span><strong>Google request and ordered stops</strong></div>
-      <div className={track ? "status-line confirmed-line" : "status-line unresolved-line"}><span>{track ? "Confirmed" : "Required"}</span><strong>{track ? "Imported track identity and length" : "Exact-track file"}</strong></div>
-      <div className="status-line unresolved-line"><span>Unresolved</span><strong>Google-link ↔ track equivalence</strong></div>
-      <div className="status-line unresolved-line"><span>Unresolved</span><strong>Official road-type classification</strong></div>
     </div>
   </section>;
 }
+
 
 function EuropeCard() {
   return <div className="europe-card" aria-label="European adapter status"><div className="map-lines"><span /><span /><span /><span /><span /></div><div className="europe-card-top"><span><Icon name="globe" size={18} /> Adapter registry</span><strong>Europe</strong></div><div className="adapter-row active"><span className="flag">DK</span><div><strong>Denmark</strong><small>Vejman pilot adapter</small></div><em>Verified pilot</em></div><div className="adapter-row"><span className="flag">EU</span><div><strong>EU / EEA countries</strong><small>Country-specific official source required</small></div><em>Registry ready</em></div><div className="adapter-row"><span className="flag">↔</span><div><strong>Cross-border routes</strong><small>Split, classify, recombine</small></div><em>Core ready</em></div><div className="adapter-foot"><span className="live-dot" /> Coverage is evidence-based, never claimed by geography alone.</div></div>;

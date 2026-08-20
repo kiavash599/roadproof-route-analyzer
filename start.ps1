@@ -6,6 +6,17 @@ param(
     [ValidateSet("composition", "eu-isa")]
     [string]$Profile = "eu-isa",
 
+    [ValidateSet("console", "markdown", "json", "all")]
+    [string]$Format = "console",
+
+    [switch]$StrictEvidence,
+
+    [switch]$Offline,
+
+    [switch]$NoAutoGeometry,
+
+    [string]$Track,
+
     [string]$OutputDirectory
 )
 
@@ -71,5 +82,25 @@ $LogFile = Join-Path $LogDirectory ("roadproof-session-{0}.log" -f (Get-Date -Fo
 
 $env:PYTHONIOENCODING = "utf-8"
 Set-Location $ProjectRoot
-& $Python -m roadproof --url $MapsUrl --profile $Profile --output-dir $OutputDirectory --log-file $LogFile
+$RoadProofArguments = @(
+    "-m", "roadproof",
+    "--url", $MapsUrl,
+    "--profile", $Profile,
+    "--format", $Format,
+    "--output-dir", $OutputDirectory,
+    "--log-file", $LogFile
+)
+if ($StrictEvidence) {
+    $RoadProofArguments += "--strict-evidence"
+}
+if ($Offline) {
+    $RoadProofArguments += "--offline"
+}
+if ($NoAutoGeometry) {
+    $RoadProofArguments += "--no-auto-geometry"
+}
+if (-not [string]::IsNullOrWhiteSpace($Track)) {
+    $RoadProofArguments += @("--track", $Track)
+}
+& $Python @RoadProofArguments
 exit $LASTEXITCODE

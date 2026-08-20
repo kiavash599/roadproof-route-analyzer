@@ -1,0 +1,30 @@
+name: Live official-service checks
+
+on:
+  schedule:
+    - cron: "23 5 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: roadproof-live-services
+  cancel-in-progress: false
+
+jobs:
+  live-services:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned runtime
+        run: python -m pip install --only-binary=:all: -r requirements.txt
+      - name: Run non-volatile live checks
+        env:
+          ROADPROOF_LIVE_TESTS: "1"
+        run: python -m unittest tests.test_live_services -v

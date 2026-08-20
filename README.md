@@ -54,8 +54,8 @@ support compliance testing, route design, fleet QA and research.
 
 ## Product status
 
-RoadProof now combines a cross-platform terminal analyzer with the existing
-web evidence-intake interface. The terminal tool:
+RoadProof now combines a cross-platform terminal analyzer with a local web
+interface backed by the same analysis engine. The analyzer:
 
 - accepts short shared links and full Google Maps address-bar route URLs;
 - resolves the supplied Google Maps route link safely;
@@ -71,10 +71,15 @@ web evidence-intake interface. The terminal tool:
 
 Runtime adapters cover routes wholly inside Denmark (`DK`), Germany (`DE`),
 Sweden (`SE`) and Belgium (`BE`); they do not require a pre-extracted geometry
-package for every route. Cross-border and other-country routes still receive a
-confirmed Google total, but road-type distance remains `Unresolved` until the
-route can be split safely or its country has an adapter. RoadProof never
-substitutes an invented classification.
+package for every route. A multi-country route can be split conservatively when
+an imported exact track reconciles with Google distance/endpoints and contains
+at most 1,000 edges. An edge is dispatched only when every point sampled at no
+more than 2 km intervals passes one unambiguous supported-country boundary from
+Eurostat GISCO Countries 2024; transitions, ambiguities, unsupported countries
+and failed adapters remain `Unresolved`. GISCO geometry is an official
+statistical reference dataset, not a legal border determination. Without a
+reconciled track, cross-border road type remains entirely unresolved. RoadProof
+never substitutes an invented classification.
 
 Google's private directions response does not always include its country-code
 array. When that happens, RoadProof may select one supported adapter only if
@@ -84,10 +89,11 @@ unresolved. This fallback selects an adapter; it is never treated as road-class
 or legal-boundary evidence. The console and Markdown report show which country
 signal was used.
 
-The web interface separately supports safe Google request resolution and local
-GPX, GeoJSON, and KML import. A maneuver-level evidence fingerprint does not
-claim to be a full polyline hash; imported exact-track identity and Google
-route evidence remain visibly distinct.
+The local web interface accepts the Google Maps link directly, runs automatic
+per-maneuver geometry reconstruction and the same official country adapter as
+the terminal, and displays the live Highway / Country / City / Unresolved
+result. It does not require a GPX upload. Exact-track import remains an optional
+terminal capability for workflows that already possess such a file.
 
 ## Classification policy
 
@@ -231,6 +237,103 @@ The equivalent terminal option is:
 ./start.sh "https://maps.app.goo.gl/rbGN7YeiTqY5E74n9" --profile composition
 ```
 
+Import an exact track separately from the Google route evidence:
+
+```powershell
+.\start.ps1 "https://maps.app.goo.gl/..." -Track ".\selected-route.gpx" -Format all
+```
+
+The CLI accepts GPX, GeoJSON, and KML files up to 5 MB and uses the same
+`roadproof-track-geometry-v1` canonical hash as the web interface. It compares
+track length and endpoints with Google maneuver evidence, but reports only
+`consistent_not_equivalent` or `conflict`; it never promotes similarity into an
+exact-equivalence claim. Track geometry is not substituted for Google's hidden
+selected polyline. When reconciliation succeeds, supported single-country and
+cross-border adapters explicitly report `reconciled_imported_exact_track` as
+their analysis basis and sample its edges; track-derived totals are uniformly
+reconciled to Google's authoritative distance. Conflicting tracks are never
+used for road classification.
+
+When no exact track is supplied, RoadProof automatically asks the public
+Project OSRM service to reconstruct road-following geometry between the Google
+maneuver anchors. Each maneuver is accepted independently only when its OSRM
+distance differs from Google's distance by no more than 12% or 200 metres,
+whichever is larger. Rejected maneuvers retain the conservative chord path and
+remain eligible to resolve only under the existing official-evidence gates.
+This hybrid geometry improves sampling coverage, but is not claimed to be
+Google's selected polyline and does not receive a Google geometry hash.
+
+The request sends the ordered maneuver coordinates to
+`router.project-osrm.org`. Use `--no-auto-geometry` (or
+`-NoAutoGeometry` with `start.ps1`) to avoid that disclosure or to disable this
+best-effort network step. `--offline` also disables automatic reconstruction.
+
+Use `--strict-evidence` for automation that should return exit code 2 unless
+the complete route distance is classified. Run the secure live-service check
+after installation or when diagnosing connectivity:
+
+```powershell
+.\.venv\Scripts\python.exe -m roadproof --self-check --network-check
+```
+
+TLS verification is always enabled. Managed networks with a private CA can set
+`ROADPROOF_CA_BUNDLE` to a readable PEM bundle; Windows installations otherwise
+use the operating-system certificate stores.
+
+Machine-readable results use the versioned `roadproof.result.v1` schema:
+
+```powershell
+.\start.ps1 "https://maps.app.goo.gl/..." -Format json -StrictEvidence
+```
+
+`console` preserves the traditional console and Markdown output, `markdown`
+saves only the Markdown report, `json` writes a JSON artifact and emits clean
+JSON to standard output, and `all` produces both artifacts plus the console
+view.
+
+Operational diagnostics are read-only:
+
+```powershell
+.\.venv\Scripts\python.exe -m roadproof --list-adapters
+.\.venv\Scripts\python.exe -m roadproof --diagnose-network
+.\.venv\Scripts\python.exe -m roadproof --inspect-cache --format json
+```
+
+`--offline` still resolves the supplied Google route, but prohibits requests
+to official road services. Retained evidence and fresh local cache entries are
+allowed; a cache miss remains explicitly unresolved. On Windows the launcher
+exposes the same behavior as `-Offline`.
+
+Route identity uses the versioned `maneuver-v2` fingerprint, including six
+decimal places for maneuver anchors and an algorithm marker. RoadProof also
+computes the previous `maneuver-v1` value and checks it when loading retained
+evidence, so existing evidence packages continue to work. The maneuver
+fingerprint remains distinct from an exact geometry hash; Google maneuver-only
+results report that geometry identity as unavailable.
+
+JSON and Markdown results include performance telemetry for sampling, aggregate
+network time across concurrent workers, request attempts and retries, downloaded
+bytes, cache hits/misses, and cache-write failures. Repeated identical official
+service failures short-circuit queued samples without changing the conservative
+classification gates.
+
+The EU ISA profile result uses the versioned
+`roadproof.profile-result.v1` schema. Each check is reported as `meets`,
+`fails`, `insufficient_evidence`, or `not_measured`. Unresolved road distance is
+not treated as a measured zero: a category fails only when the known distance
+and all unresolved distance together still cannot reach the target; otherwise
+the result remains `insufficient_evidence`. Darkness remains `not_measured`.
+
+The deterministic test suite never depends on public-service availability.
+`.github/workflows/live-services.yml` runs separate non-volatile TLS, endpoint,
+and representative German vector-tile decoding checks every Tuesday and on
+manual dispatch. The live suite can also be run locally:
+
+```powershell
+$env:ROADPROOF_LIVE_TESTS = "1"
+.\.venv\Scripts\python.exe -m unittest tests.test_live_services -v
+```
+
 Reports are saved under `reports` with a meaningful, collision-safe name:
 
 ```text
@@ -255,16 +358,19 @@ preferred.
 
 ## Web interface
 
-The responsive web interface remains a secondary prototype. Its local
-development requirements are Node.js 22.13 or newer:
+The responsive local web interface uses the same Python evidence engine as the
+terminal. Complete the normal installer first so `.venv` exists, then run:
 
 ```bash
 npm ci
 npm run dev
 ```
 
-Open the local URL printed by the development server. Use **Load stored Denmark
-pilot** to inspect the legacy evidence record.
+`npm run dev` starts both the private localhost analysis API and the web
+interface. Open the local URL printed by the development server and paste a
+Google Maps route link; no GPX, API key or Google account is required. The
+local API binds only to `127.0.0.1` and accepts requests only from the local web
+origin. Use **Load stored Denmark pilot** only to inspect the legacy sample.
 
 ## Validate
 

@@ -17,7 +17,9 @@ from typing import Any
 from http.cookiejar import CookieJar
 from urllib.parse import parse_qs, unquote_plus, urljoin, urlparse
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, HTTPCookieProcessor, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, HTTPCookieProcessor, Request, build_opener
+
+from .network import secure_ssl_context, tls_failure_hint
 
 
 USER_AGENT = (
@@ -60,6 +62,8 @@ ALLOWED_INPUT_HOSTS = {
 URL_IN_TEXT_RE = re.compile(r"https://[^\s<>\"']+", re.IGNORECASE)
 TRANSIENT_HTTP_CODES = {408, 425, 429, 500, 502, 503, 504}
 GOOGLE_REQUEST_ATTEMPTS = 3
+ROUTE_FINGERPRINT_VERSION = "maneuver-v2"
+LEGACY_ROUTE_FINGERPRINT_VERSION = "maneuver-v1"
 
 
 class RouteReadError(RuntimeError):
@@ -228,21 +232,47 @@ def _destination_from_leg(leg: list[Any]) -> tuple[float, float]:
     return float(coord[2]), float(coord[3])
 
 
-def route_fingerprint(distance_m: int, maneuvers: list[dict[str, Any]]) -> str:
-    """Hash distance plus maneuver anchors, independent of link text/language."""
+def _route_fingerprint(
+    distance_m: int,
+    maneuvers: list[dict[str, Any]],
+    *,
+    version: str,
+    coordinate_places: int,
+) -> str:
     normalized = {
+        **({"version": version} if version != LEGACY_ROUTE_FINGERPRINT_VERSION else {}),
         "distance_m": distance_m,
         "maneuvers": [
             {
                 "distance_m": item["distance_m"],
-                "start": [round(item["start_lat"], 5), round(item["start_lon"], 5)],
-                "end": [round(item["end_lat"], 5), round(item["end_lon"], 5)],
+                "start": [round(item["start_lat"], coordinate_places), round(item["start_lon"], coordinate_places)],
+                "end": [round(item["end_lat"], coordinate_places), round(item["end_lon"], coordinate_places)],
             }
             for item in maneuvers
         ],
     }
     body = json.dumps(normalized, separators=(",", ":"), sort_keys=True).encode("utf-8")
     return hashlib.sha256(body).hexdigest()
+
+
+def route_fingerprint(distance_m: int, maneuvers: list[dict[str, Any]]) -> str:
+    """Versioned maneuver identity, independent of link text/language."""
+    return _route_fingerprint(
+        distance_m,
+        maneuvers,
+        version=ROUTE_FINGERPRINT_VERSION,
+        coordinate_places=6,
+    )
+
+
+def legacy_route_fingerprint(distance_m: int, maneuvers: list[dict[str, Any]]) -> str:
+    """Return the pre-versioning fingerprint for retained-evidence migration."""
+    return _route_fingerprint(
+        distance_m,
+        maneuvers,
+        version=LEGACY_ROUTE_FINGERPRINT_VERSION,
+        coordinate_places=5,
+    )
 
 
 def parse_directions_response(body: bytes, *, input_url: str, resolved_url: str) -> dict[str, Any]:
@@ -339,13 +369,22 @@ def parse_directions_response(body: bytes, *, input_url: str, resolved_url: str)
         "maneuvers": records,
         "response_sha256": response_sha256,
         "route_fingerprint": route_fingerprint(distance_m, records),
+        "route_fingerprint_version": ROUTE_FINGERPRINT_VERSION,
+        "legacy_route_fingerprint": legacy_route_fingerprint(distance_m, records),
+        "legacy_route_fingerprint_version": LEGACY_ROUTE_FINGERPRINT_VERSION,
+        "geometry_hash": None,
+        "geometry_hash_status": "not_available_from_google_maneuver_evidence",
         "countries": countries,
     }
 
 
 def fetch_google_route(url: str, *, timeout: int = 60) -> dict[str, Any]:
     input_url = normalize_google_maps_url(url)
-    opener = build_opener(HTTPCookieProcessor(CookieJar()), SafeGoogleRedirectHandler())
+    opener = build_opener(
+        HTTPCookieProcessor(CookieJar()),
+        SafeGoogleRedirectHandler(),
+        HTTPSHandler(context=secure_ssl_context()),
+    )
     headers = {
         "User-Agent": USER_AGENT,
         "Accept-Language": "en-US,en;q=0.9",
@@ -357,7 +396,7 @@ def fetch_google_route(url: str, *, timeout: int = 60) -> dict[str, Any]:
         page_url = page_response.geturl()
         page_text = page_response.read().decode("utf-8", errors="replace")
     except (HTTPError, URLError, TimeoutError, OSError) as exc:
-        raise RouteReadError(f"Could not open the Google Maps link: {exc}") from exc
+        raise RouteReadError(f"Could not open the Google Maps link: {tls_failure_hint(exc)}") from exc
 
     # In the EEA, anonymous requests can be redirected to Google's consent
     # interstitial. Follow its allowlisted `continue` target with a non-tracking
@@ -385,7 +424,7 @@ def fetch_google_route(url: str, *, timeout: int = 60) -> dict[str, Any]:
             page_url = page_response.geturl()
             page_text = page_response.read().decode("utf-8", errors="replace")
         except (HTTPError, URLError, TimeoutError, OSError) as exc:
-            raise RouteReadError(f"Could not continue from Google's consent page: {exc}") from exc
+            raise RouteReadError(f"Could not continue from Google's consent page: {tls_failure_hint(exc)}") from exc
 
     try:
         _validate_input_url(page_url)
@@ -424,5 +463,5 @@ def fetch_google_route(url: str, *, timeout: int = 60) -> dict[str, Any]:
         )
         body = response.read()
     except (HTTPError, URLError, TimeoutError, OSError) as exc:
-        raise RouteReadError(f"Could not read Google's selected route payload: {exc}") from exc
+        raise RouteReadError(f"Could not read Google's selected route payload: {tls_failure_hint(exc)}") from exc
     return parse_directions_response(body, input_url=input_url, resolved_url=page_url)
