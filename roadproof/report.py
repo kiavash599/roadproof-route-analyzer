@@ -362,12 +362,13 @@ def markdown_report(
     lines.append("")
     if matched:
         if evidence.get("runtime"):
+            adapter_name = _markdown_cell(evidence.get("adapter") or "the selected official country adapter")
             evidence_paragraph = (
-                "RoadProof matched this route at runtime against official Danish road and zone data. "
-                "The exact-distance allocation below calibrates accepted official paths to Google's "
-                "maneuver distances. The named official attributes are matched on accepted segments; "
-                "mapping them to EU buckets and allocating distance remain inferred, while failed paths "
-                "remain unresolved."
+                f"RoadProof evaluated this route at runtime with **{adapter_name}**. "
+                "The exact-distance allocation below uses only maneuvers accepted by that adapter's "
+                "evidence gates. Named official attributes are matched on accepted segments or samples; "
+                "mapping them to EU buckets and allocating Google distance remain inferred, while failed "
+                "or ambiguous evidence remains unresolved."
             )
         else:
             evidence_paragraph = (

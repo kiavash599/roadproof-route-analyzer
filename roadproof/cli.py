@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 
 from . import __version__
-from .denmark import DenmarkAdapterError, analyze_denmark_route
+from .adapters import DenmarkAdapterError, OfficialAdapterError, analyze_supported_route
 from .google import RouteReadError, fetch_google_route
 from .report import breakdown_for, load_evidence, markdown_report, render_console, save_report
 
@@ -83,12 +83,12 @@ def main(argv: list[str] | None = None) -> int:
         evidence = load_evidence(ROOT, route["route_fingerprint"])
         if evidence is None:
             try:
-                evidence = analyze_denmark_route(
+                evidence = analyze_supported_route(
                     route,
                     progress=lambda text: message(text, "36"),
                 )
-            except DenmarkAdapterError as exc:
-                message(f"Denmark official-road adapter could not complete: {exc}", "33")
+            except (DenmarkAdapterError, OfficialAdapterError) as exc:
+                message(f"Official-road adapter could not complete: {exc}", "33")
         rows = breakdown_for(route, evidence)
         created_at = datetime.now().astimezone()
         content = markdown_report(route, rows, evidence, args.profile, created_at)
