@@ -7,4 +7,8 @@ mapbox-vector-tile==2.2.0
 protobuf==6.33.6
 pyclipper==1.4.0
 shapely==2.1.2
-numpy==2.2.6
+# NumPy 2.2.x has no official CPython 3.14 wheel.  Keep the last 3.10-
+# compatible release for Python 3.10-3.13 and use a stable 3.14-compatible line
+# for Python 3.14.  The installers require an official binary wheel.
+numpy==2.2.6; python_version < "3.14"
+numpy==2.3.5; python_version >= "3.14"

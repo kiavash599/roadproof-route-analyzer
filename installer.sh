@@ -22,7 +22,7 @@ fail() {
 }
 
 python_is_supported() {
-    "$1" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 10) else 1)' >/dev/null 2>&1
+    "$1" -c 'import platform, sys; raise SystemExit(0 if (3, 10) <= sys.version_info[:2] < (3, 15) and platform.python_implementation() == "CPython" else 1)' >/dev/null 2>&1
 }
 
 find_python() {
@@ -64,7 +64,7 @@ install_python() {
 
     if [[ "$platform" == "Darwin" ]]; then
         if ! command -v brew >/dev/null 2>&1; then
-            fail "Python 3.10+ was not found. Install it from https://www.python.org/downloads/macos/ or install Homebrew, then rerun installer.sh."
+            fail "CPython 3.10-3.14 was not found. Install it from https://www.python.org/downloads/macos/ or install Homebrew, then rerun installer.sh."
         fi
         step "Installing Python 3.12 with Homebrew"
         brew install python@3.12
@@ -127,8 +127,19 @@ if [[ ! -x "$VENV_PYTHON" ]]; then
     ensure_venv_support "$PYTHON"
 fi
 
+step "Updating Python installation tooling"
+"$VENV_PYTHON" -m pip install --disable-pip-version-check --upgrade pip
+
+step "Installing the official NumPy binary"
+NUMPY_REQUIREMENT="$($VENV_PYTHON -c 'import sys; print("numpy==2.3.5" if sys.version_info >= (3, 14) else "numpy==2.2.6")')"
+"$VENV_PYTHON" -m pip install --disable-pip-version-check --upgrade --force-reinstall \
+    --only-binary=:all: "$NUMPY_REQUIREMENT"
+
 step "Installing RoadProof requirements"
-"$VENV_PYTHON" -m pip install --disable-pip-version-check -r "$PROJECT_ROOT/requirements.txt"
+"$VENV_PYTHON" -m pip install --disable-pip-version-check --upgrade -r "$PROJECT_ROOT/requirements.txt"
+
+step "Verifying compiled route-analysis dependencies"
+"$VENV_PYTHON" -c 'import warnings; warnings.filterwarnings("error", message=r"Numpy built with MINGW-W64.*"); import mapbox_vector_tile, numpy, shapely; print(f"NumPy {numpy.__version__}; Shapely {shapely.__version__}; vector-tile decoder ready")'
 
 step "Running the built-in self-check"
 "$VENV_PYTHON" -m roadproof --self-check

@@ -16,6 +16,14 @@ if [[ ! -x "$PYTHON" ]]; then
     exit 2
 fi
 
+# Check metadata without importing NumPy because an incompatible MinGW build
+# may terminate Python during import before RoadProof can show a useful error.
+if ! "$PYTHON" -c 'import importlib.metadata as m, sys; version=tuple(map(int, m.version("numpy").split(".")[:2])); raise SystemExit(0 if sys.version_info < (3, 14) or version >= (2, 3) else 1)' >/dev/null 2>&1; then
+    printf '%sRoadProof found an incompatible NumPy environment.%s\n' "$RED" "$RESET"
+    printf 'Run %sbash ./installer.sh%s once to replace it with the official binary, then retry.\n' "$WHITE" "$RESET"
+    exit 2
+fi
+
 MAPS_URL=""
 if [[ $# -gt 0 && "${1:-}" != -* ]]; then
     MAPS_URL="$1"
