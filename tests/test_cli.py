@@ -8,14 +8,16 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
+from roadproof.cli import _evidence_for_route, main
 from roadproof.denmark import (
     DenmarkAdapterError,
     _haversine,
     analyze_denmark_route,
     classify_official_properties,
 )
-from roadproof.adapters import analyze_supported_route
+from roadproof.adapters import analyze_supported_route, resolve_country_signal
 from roadproof.belgium import analyze_belgium_route, classify_flanders_properties
 from roadproof.germany import analyze_germany_route, classify_basemap_properties
 from roadproof.google import (
@@ -27,7 +29,7 @@ from roadproof.google import (
     route_fingerprint,
 )
 from roadproof.report import breakdown_for, load_evidence, markdown_report, report_filename, save_report
-from roadproof.sampled import PointEvidence
+from roadproof.sampled import OfficialAdapterError, PointEvidence
 from roadproof.sweden import analyze_sweden_route
 
 
@@ -316,7 +318,7 @@ class RoadProofTests(unittest.TestCase):
         created = datetime(2026, 8, 19, 8, 0, tzinfo=timezone.utc)
         content = markdown_report(route, rows, None, "eu-isa", created)
         self.assertIn("1.000 km", content)
-        self.assertIn("No retained official-road evidence package", content)
+        self.assertIn("No matching road-network evidence package", content)
         self.assertIn("### Leg summary", content)
         self.assertIn("Resolved route:", content)
         with tempfile.TemporaryDirectory() as directory:
@@ -383,6 +385,79 @@ class RoadProofTests(unittest.TestCase):
         for launcher in (windows_launcher, unix_launcher):
             self.assertIn("importlib.metadata", launcher)
             self.assertIn("incompatible NumPy environment", launcher)
+
+    def test_missing_google_country_signal_is_reported_instead_of_hidden(self):
+        route = {
+            "route_fingerprint": "missing-country",
+            "countries": [],
+        }
+        with (
+            patch("roadproof.cli.load_evidence", return_value=None),
+            patch("roadproof.cli.analyze_supported_route", return_value=None),
+        ):
+            evidence, status = _evidence_for_route(route, progress=lambda _text: None)
+        self.assertIsNone(evidence)
+        self.assertIn("Google supplied no country code", status)
+
+    def test_missing_google_country_signal_uses_unique_coordinate_fallback(self):
+        route = {
+            "countries": [],
+            "origin_name": "52.5187846, 13.4026534",
+            "destination_name": "Liebknechtbrücke 1, Berlin, Germany",
+            "maneuvers": [
+                {
+                    "start_lat": 52.5187846,
+                    "start_lon": 13.4026534,
+                    "end_lat": 52.399293,
+                    "end_lon": 13.4102326,
+                }
+            ],
+        }
+        self.assertEqual(resolve_country_signal(route), ["DE"])
+        self.assertEqual(route["countries"], ["DE"])
+        self.assertEqual(route["country_signal_source"], "URL country label + coordinate guard")
+
+    def test_coordinate_fallback_does_not_guess_in_overlapping_border_envelopes(self):
+        route = {
+            "countries": [],
+            "origin_name": "50.75, 6.20",
+            "destination_name": "50.80, 6.30",
+            "maneuvers": [
+                {
+                    "start_lat": 50.75,
+                    "start_lon": 6.20,
+                    "end_lat": 50.80,
+                    "end_lon": 6.30,
+                }
+            ],
+        }
+        self.assertEqual(resolve_country_signal(route), [])
+        self.assertIn("ambiguous", route["country_signal_source"])
+
+    def test_adapter_failure_reason_is_preserved(self):
+        route = {
+            "route_fingerprint": "adapter-error",
+            "countries": ["DE"],
+        }
+        with (
+            patch("roadproof.cli.load_evidence", return_value=None),
+            patch(
+                "roadproof.cli.analyze_supported_route",
+                side_effect=OfficialAdapterError("basemap.de test failure"),
+            ),
+        ):
+            evidence, status = _evidence_for_route(route, progress=lambda _text: None)
+        self.assertIsNone(evidence)
+        self.assertEqual(status, "Official-road adapter failed: basemap.de test failure")
+
+    def test_self_check_can_write_plain_persistent_run_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "session.log"
+            self.assertEqual(main(["--self-check", "--log-file", str(path)]), 0)
+            content = path.read_text(encoding="utf-8")
+            self.assertIn("Self-check passed", content)
+            self.assertIn("Run log saved", content)
+            self.assertNotIn("\x1b[", content)
 
 
 if __name__ == "__main__":

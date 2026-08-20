@@ -76,6 +76,14 @@ confirmed Google total, but road-type distance remains `Unresolved` until the
 route can be split safely or its country has an adapter. RoadProof never
 substitutes an invented classification.
 
+Google's private directions response does not always include its country-code
+array. When that happens, RoadProof may select one supported adapter only if
+the country name exposed by the route URL and every maneuver coordinate pass a
+single conservative country envelope. Overlapping or border cases remain
+unresolved. This fallback selects an adapter; it is never treated as road-class
+or legal-boundary evidence. The console and Markdown report show which country
+signal was used.
+
 The web interface separately supports safe Google request resolution and local
 GPX, GeoJSON, and KML import. A maneuver-level evidence fingerprint does not
 claim to be a full polyline hash; imported exact-track identity and Google
@@ -228,6 +236,13 @@ Reports are saved under `reports` with a meaningful, collision-safe name:
 ```text
 roadproof-<origin>-to-<destination>-<timestamp>-<fingerprint>.md
 ```
+
+Every launcher run also saves a plain-text diagnostic transcript under
+`reports/logs/roadproof-session-<timestamp>.log`. It includes the early Google
+resolution and official-adapter messages as well as the final tables. On
+Windows, `start.ps1` additionally expands the legacy PowerShell console buffer
+to 9,999 lines when the host permits it. The log remains available when Windows
+Terminal or another host manages scrollback itself.
 
 Round trips use `<origin>-loop`; when Google does not expose endpoint labels,
 the route name is used instead.

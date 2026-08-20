@@ -54,6 +54,16 @@ def breakdown_for(route: dict[str, Any], evidence: dict[str, Any] | None) -> lis
     ]
 
 
+def _evidence_text(route: dict[str, Any], evidence: dict[str, Any] | None) -> str:
+    if evidence:
+        return str(evidence.get("summary") or "Matched verified official-road evidence package")
+    return str(route.get("evidence_status") or "No matching road-network evidence package")
+
+
+def _country_signal(route: dict[str, Any]) -> str:
+    return str(route.get("country_signal") or "Not recorded")
+
+
 def duration_text(seconds: int) -> str:
     hours, remainder = divmod(seconds, 3600)
     minutes = remainder // 60
@@ -130,7 +140,7 @@ def _render_ansi_console(
     output_path: Path,
     profile: str,
 ) -> None:
-    evidence_text = str(evidence.get("summary") or "Matched verified official-road evidence package") if evidence else "No matching road-network evidence package"
+    evidence_text = _evidence_text(route, evidence)
     print("\n" + color("  ROADPROOF  ", "white", bold=True) + color(" Evidence-first route analysis", "blue", bold=True))
     print_table(
         "Route summary",
@@ -140,6 +150,7 @@ def _render_ansi_console(
             ["Exact distance", f"{route['distance_m'] / 1000:.3f} km"],
             ["Google duration", duration_text(route["duration_s"])],
             ["Legs / maneuvers", f"{len(route['legs'])} / {route['maneuver_count']}"],
+            ["Country signal", _country_signal(route)],
             ["Evidence", color(evidence_text, "green" if evidence else "yellow")],
             ["Profile", "EU ISA 2021/1958" if profile == "eu-isa" else "Composition only"],
         ],
@@ -224,10 +235,8 @@ def _render_rich_console(
     summary.add_row("Exact distance", f"{route['distance_m'] / 1000:.3f} km")
     summary.add_row("Google duration", duration_text(route["duration_s"]))
     summary.add_row("Legs / maneuvers", f"{len(route['legs'])} / {route['maneuver_count']}")
-    evidence_text = Text(
-        str(evidence.get("summary") or "Matched verified official-road evidence package"),
-        style="bold green",
-    ) if evidence else Text("No matching road-network evidence package", style="bold yellow")
+    summary.add_row("Country signal", _country_signal(route))
+    evidence_text = Text(_evidence_text(route, evidence), style="bold green" if evidence else "bold yellow")
     summary.add_row("Evidence", evidence_text)
     summary.add_row("Profile", "EU ISA 2021/1958" if profile == "eu-isa" else "Composition only")
     summary.add_row("Fingerprint", route["route_fingerprint"][:16] + "...")
@@ -349,6 +358,8 @@ def markdown_report(
         f"| Google duration | {duration_text(route['duration_s'])} |",
         f"| Legs / maneuvers | {len(route['legs'])} / {route['maneuver_count']} |",
         f"| Maneuver-distance sum | {route['maneuver_sum_m'] / 1000:.3f} km |",
+        f"| Country signal | {_markdown_cell(_country_signal(route))} |",
+        f"| Evidence status | {_markdown_cell(_evidence_text(route, evidence))} |",
         "",
         "### Leg summary",
         "",
@@ -386,7 +397,7 @@ def markdown_report(
     else:
         lines.extend(
             [
-                "No retained official-road evidence package has the same geometry fingerprint. "
+                f"Road-network evidence was unavailable: **{_markdown_cell(_evidence_text(route, evidence))}**. "
                 "RoadProof therefore reports the exact Google distance but does not invent a Highway, "
                 "Country, or City allocation.",
                 "",
@@ -438,7 +449,7 @@ def markdown_report(
     if matched:
         lines.extend(f"- {item}" for item in evidence.get("unresolved", []))
     else:
-        lines.append("- The country road-network adapter has not verified this exact route geometry.")
+        lines.append(f"- {_markdown_cell(_evidence_text(route, evidence))}.")
     lines.extend(
         [
             "- Darkness distance is not available from a planned route.",

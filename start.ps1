@@ -28,6 +28,21 @@ if (-not (Test-Path $Python)) {
     exit 2
 }
 
+function Enable-RoadProofScrollback {
+    try {
+        $buffer = $Host.UI.RawUI.BufferSize
+        if ($buffer.Height -lt 9999) {
+            $buffer.Height = 9999
+            $Host.UI.RawUI.BufferSize = $buffer
+        }
+    } catch {
+        # Windows Terminal manages scrollback itself; the persistent run log
+        # below remains available when a host does not expose RawUI settings.
+    }
+}
+
+Enable-RoadProofScrollback
+
 # Read package metadata without importing NumPy: importing the incompatible
 # CPython 3.14 / NumPy 2.2 MinGW build can terminate the interpreter.
 & $Python -c "import importlib.metadata as m, sys; version=tuple(map(int, m.version('numpy').split('.')[:2])); raise SystemExit(0 if sys.version_info < (3, 14) or version >= (2, 3) else 1)"
@@ -50,8 +65,11 @@ if ([string]::IsNullOrWhiteSpace($MapsUrl)) {
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
     $OutputDirectory = Join-Path $ProjectRoot "reports"
 }
+$LogDirectory = Join-Path $OutputDirectory "logs"
+New-Item -ItemType Directory -Path $LogDirectory -Force | Out-Null
+$LogFile = Join-Path $LogDirectory ("roadproof-session-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss-fff"))
 
 $env:PYTHONIOENCODING = "utf-8"
 Set-Location $ProjectRoot
-& $Python -m roadproof --url $MapsUrl --profile $Profile --output-dir $OutputDirectory
+& $Python -m roadproof --url $MapsUrl --profile $Profile --output-dir $OutputDirectory --log-file $LogFile
 exit $LASTEXITCODE

@@ -40,5 +40,8 @@ if [[ -z "${MAPS_URL//[[:space:]]/}" ]]; then
 fi
 
 export PYTHONIOENCODING=utf-8
+LOG_DIRECTORY="$PROJECT_ROOT/reports/logs"
+mkdir -p "$LOG_DIRECTORY"
+LOG_FILE="$LOG_DIRECTORY/roadproof-session-$(date +%Y%m%d-%H%M%S)-$$.log"
 cd "$PROJECT_ROOT"
-exec "$PYTHON" -m roadproof --url "$MAPS_URL" "$@"
+exec "$PYTHON" -m roadproof --url "$MAPS_URL" --log-file "$LOG_FILE" "$@"
